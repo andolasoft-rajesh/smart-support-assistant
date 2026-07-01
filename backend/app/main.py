@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from database import Base, engine, get_db
+from backend.app.database import Base, engine, get_db
 from models import Conversation, Message
 
 app = FastAPI(title="Smart Support Assistant")
