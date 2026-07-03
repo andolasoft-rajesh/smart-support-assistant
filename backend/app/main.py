@@ -1,5 +1,6 @@
 # backend/app/main.py
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from app.database import Base, engine, SessionLocal
@@ -11,6 +12,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+<<<<<<< HEAD
+=======
+# Add CORS middleware to allow requests from frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+>>>>>>> ec2e479b457726b350315e8d86cb0d4ac1480924
 
 class ChatRequest(BaseModel):
     message: str
@@ -29,6 +41,7 @@ def health():
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+<<<<<<< HEAD
     db = SessionLocal()
 
     if req.conversation_id is not None:
@@ -61,6 +74,9 @@ def chat(req: ChatRequest):
     db.add(assistant_message)
     db.commit()
 
+=======
+    
+>>>>>>> ec2e479b457726b350315e8d86cb0d4ac1480924
     return ChatResponse(
         reply=f"Echo: {req.message}",
         conversation_id=str(conversation.id)
