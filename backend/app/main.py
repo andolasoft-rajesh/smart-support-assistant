@@ -1,33 +1,43 @@
-# backend/app/main.py
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Optional
+from fastapi import FastAPI,Depends
+from .schemas import ChatRequest
+from .database import Base, engine,get_db
+from . import models
+from sqlalchemy.orm import Session
+from .models import Conversation
+from .routes.chat import router as chat_router
 
-app = FastAPI(
-    title="Smart Support Assistant",
-    description="API for AI-powered customer support",
-    version="1.0.0"
-)
+app = FastAPI()
+app.include_router(chat_router)
+Base.metadata.create_all(bind=engine)
 
-class ChatRequest(BaseModel):
-    message: str
-    conversation_id: Optional[str] = None
 
-class ChatResponse(BaseModel):
-    reply: str
-    conversation_id: str
+@app.get("/")
+def home():
+    return {
+        "message": "Welcome!"
+    }
+
+@app.get("/developer")
+def developer():
+    return {
+        "developer": "Ankur"
+    }
+
+@app.get("/users/{user_id}")
+def avout(user_id:int):
+    return{
+        "user_id":user_id
+    }
+
+@app.get("/search")
+def developer(category:str, page:int):
+    return {
+        "category":category,
+        "Page":page
+    }
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
-
-@app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
-    return ChatResponse(
-        reply=f"Echo: {req.message}",
-        conversation_id=req.conversation_id or "new"
-    )
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    return {
+        "status": "healthy"
+    }
