@@ -12,8 +12,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-<<<<<<< HEAD
-=======
 # Add CORS middleware to allow requests from frontend
 app.add_middleware(
     CORSMiddleware,
@@ -22,7 +20,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
->>>>>>> ec2e479b457726b350315e8d86cb0d4ac1480924
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -41,7 +39,7 @@ def health():
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-<<<<<<< HEAD
+
     db = SessionLocal()
 
     if req.conversation_id is not None:
@@ -67,16 +65,13 @@ def chat(req: ChatRequest):
     db.commit()
 
     assistant_message = models.Message(
-    conversation_id=conversation.id,
-    role="assistant",
-    content=f"Echo: {req.message}"
-)
+        conversation_id=conversation.id,
+        role="assistant",
+        content=f"Echo: {req.message}"
+    )
     db.add(assistant_message)
     db.commit()
 
-=======
-    
->>>>>>> ec2e479b457726b350315e8d86cb0d4ac1480924
     return ChatResponse(
         reply=f"Echo: {req.message}",
         conversation_id=str(conversation.id)
