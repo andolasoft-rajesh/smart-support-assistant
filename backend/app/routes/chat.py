@@ -1,50 +1,37 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from .. import crud
 from ..database import get_db
-from ..schemas import ChatRequest
-from ..models import Conversation, Message
+from ..schemas import ChatRequest, ChatResponse, ResponseMessage
+from ..services.llm import generate_reply, LLMError
 
 router = APIRouter()
 
 
-@router.post("/chat")
-def chat(
-    req: ChatRequest,
-    db: Session = Depends(get_db)
-):
-    if req.conversation_id is None:
+@router.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest, db: Session = Depends(get_db)):
+    try:
+        conv = crud.get_or_create_conversation(db, req.conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation_id")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
-        conversation = Conversation()
+    crud.save_message(db, conv.id, "user", req.message)
+    history = crud.load_history(db, conv.id)
 
-        db.add(conversation)
+    try:
+        reply = generate_reply(history)
+    except LLMError:
+        db.rollback()
+        raise HTTPException(status_code=502, detail="Assistant unavailable, please retry")
 
-    else:
-
-        conversation = (
-            db.query(Conversation)
-            .filter(Conversation.id == req.conversation_id)
-            .first()
-        )
-
-        if conversation is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Conversation not found"
-            )
-        
-
-    message = Message(
-    conversation=conversation,
-    role="user",
-    content=req.message
-)   
-    db.add(message)
+    crud.save_message(db, conv.id, "assistant", reply)
     db.commit()
-    db.refresh(conversation)
-    
 
-    return {
-    "conversation_id": str(conversation.id),
-    "message": req.message
-}
+    return ChatResponse(
+        user=ResponseMessage(role="user", content=req.message),
+        reply=reply,
+        conversation_id=str(conv.id),
+    )
