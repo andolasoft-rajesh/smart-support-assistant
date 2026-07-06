@@ -1,14 +1,23 @@
 # backend/app/main.py
+from dotenv import load_dotenv
+
+# Load .env before importing anything that reads env vars at import time
+# (services.llm calls genai.configure(api_key=...) on import).
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
+
+from app.database import Base, engine
+from app.routes.chat import router as chat_router
 
 app = FastAPI(
     title="Smart Support Assistant",
     description="API for AI-powered customer support",
     version="1.0.0"
 )
+
+Base.metadata.create_all(bind=engine)
 
 # Add CORS middleware to allow requests from frontend
 app.add_middleware(
@@ -19,25 +28,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ChatRequest(BaseModel):
-    message: str
-    conversation_id: Optional[str] = None
-
-class ChatResponse(BaseModel):
-    reply: str
-    conversation_id: str
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-@app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
-    
-    return ChatResponse(
-        reply=f"Echo: {req.message}",
-        conversation_id=req.conversation_id or "new"
-    )
+
+app.include_router(chat_router)
 
 if __name__ == "__main__":
     import uvicorn

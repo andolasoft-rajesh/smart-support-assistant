@@ -9,6 +9,10 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
+  user: {
+    role: "user";
+    content: string;
+  };
   reply: string;
   conversation_id: string;
 }
