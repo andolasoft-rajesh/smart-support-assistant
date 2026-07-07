@@ -17,6 +17,12 @@ logger = logging.getLogger("llm")
 MODEL = "gemini-2.5-flash"
 MAX_TOKENS = 500
 
+# Embedding model. text-embedding-004 outputs 768-dim vectors — that number
+# must match the Vector(...) column in models.Chunk, so it lives here as the
+# single source of truth for both the embed call and the DB schema.
+EMBEDDING_MODEL = "models/text-embedding-004"
+EMBEDDING_DIM = 768
+
 # System prompt lives here, server-side, so it's one place for the whole
 # team — never sent from the client, never editable by the user.
 SYSTEM = (
@@ -77,4 +83,39 @@ def generate_reply(history: list[dict]) -> str:
         # last-resort catch: never let an unexpected exception leak a
         # traceback (or a raw error string) up to the user
         logger.exception("Unexpected error calling LLM")
+        raise LLMError("unknown")
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """
+    Embed a batch of strings, returning one 768-float vector per input,
+    in the same order. Used by the document pipeline (services/rag.py)
+    to turn chunks into vectors before storing them.
+
+    Raises LLMError on any provider failure — same contract as
+    generate_reply(), so routes catch one exception type.
+    """
+    if not texts:
+        return []
+
+    try:
+        # retrieval_document = the text is a corpus document being indexed
+        # (queries at search time use task_type="retrieval_query").
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL,
+            content=texts,
+            task_type="retrieval_document",
+        )
+        return result["embedding"]
+
+    except google_exceptions.ResourceExhausted:
+        logger.warning("Embedding rate limited")
+        raise LLMError("rate_limited")
+
+    except google_exceptions.Unauthenticated:
+        logger.error("Embedding authentication failed - check GEMINI_API_KEY")
+        raise LLMError("auth_error")
+
+    except Exception:
+        logger.exception("Unexpected error creating embeddings")
         raise LLMError("unknown")

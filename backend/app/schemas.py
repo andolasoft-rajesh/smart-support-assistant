@@ -17,3 +17,8 @@ class ChatResponse(BaseModel):
     user: ResponseMessage
     reply: str
     conversation_id: str
+
+
+class UploadResponse(BaseModel):
+    filename: str
+    chunks: int

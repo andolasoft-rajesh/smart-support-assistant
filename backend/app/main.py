@@ -7,15 +7,22 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.database import Base, engine
 from app.routes.chat import router as chat_router
+from app.routes.documents import router as documents_router
 
 app = FastAPI(
     title="Smart Support Assistant",
     description="API for AI-powered customer support",
     version="1.0.0"
 )
+
+# pgvector ships as a PostgreSQL extension. It must exist before create_all()
+# tries to build the Vector column on the chunks table.
+with engine.begin() as conn:
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
 Base.metadata.create_all(bind=engine)
 
@@ -34,6 +41,7 @@ def health():
 
 
 app.include_router(chat_router)
+app.include_router(documents_router)
 
 if __name__ == "__main__":
     import uvicorn
