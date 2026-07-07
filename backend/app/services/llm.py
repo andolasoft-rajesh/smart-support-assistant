@@ -17,10 +17,13 @@ logger = logging.getLogger("llm")
 MODEL = "gemini-2.5-flash"
 MAX_TOKENS = 500
 
-# Embedding model. text-embedding-004 outputs 768-dim vectors — that number
-# must match the Vector(...) column in models.Chunk, so it lives here as the
-# single source of truth for both the embed call and the DB schema.
-EMBEDDING_MODEL = "models/text-embedding-004"
+# Embedding model. gemini-embedding-001 defaults to 3072-dim vectors but
+# supports Matryoshka truncation via output_dimensionality — we ask for 768 so
+# the vector matches the Vector(...) column in models.Chunk. This lives here as
+# the single source of truth for both the embed calls and the DB schema.
+# (text-embedding-004 was retired; list models with genai.list_models() if this
+# ever 404s again.)
+EMBEDDING_MODEL = "models/gemini-embedding-001"
 EMBEDDING_DIM = 768
 
 # System prompt lives here, server-side, so it's one place for the whole
@@ -39,14 +42,18 @@ class LLMError(Exception):
     type and don't need to know *why* it failed — only that it did."""
 
 
-def generate_reply(history: list[dict]) -> str:
+def generate_reply(history: list[dict], system: str = SYSTEM) -> str:
     """
     history: [{"role": "user"|"assistant", "content": "..."}, ...]
     in chronological order, already capped by the caller (see crud.load_history).
     Returns the assistant's reply text, or raises LLMError.
+
+    `system` defaults to the plain SYSTEM prompt. The RAG chat flow passes an
+    augmented version (SYSTEM + retrieved context + "answer only from context")
+    so the same function serves both grounded and ungrounded replies.
     """
     try:
-        model = genai.GenerativeModel(MODEL, system_instruction=SYSTEM)
+        model = genai.GenerativeModel(MODEL, system_instruction=system)
         
         # Convert history format for Gemini (role must be "user" or "model")
         gemini_history = []
@@ -105,6 +112,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             model=EMBEDDING_MODEL,
             content=texts,
             task_type="retrieval_document",
+            output_dimensionality=EMBEDDING_DIM,
         )
         return result["embedding"]
 
@@ -118,4 +126,37 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
     except Exception:
         logger.exception("Unexpected error creating embeddings")
+        raise LLMError("unknown")
+
+
+def embed_query(text: str) -> list[float]:
+    """
+    Embed a single search query into one 768-float vector.
+
+    Uses task_type="retrieval_query" — the counterpart to the
+    "retrieval_document" used when indexing chunks. Matching the query and
+    document task types is what makes the cosine distances meaningful, so
+    retrieval (services/rag.retrieve) calls this, never embed_texts.
+
+    Raises LLMError on any provider failure, same contract as the others.
+    """
+    try:
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL,
+            content=text,
+            task_type="retrieval_query",
+            output_dimensionality=EMBEDDING_DIM,
+        )
+        return result["embedding"]
+
+    except google_exceptions.ResourceExhausted:
+        logger.warning("Embedding rate limited")
+        raise LLMError("rate_limited")
+
+    except google_exceptions.Unauthenticated:
+        logger.error("Embedding authentication failed - check GEMINI_API_KEY")
+        raise LLMError("auth_error")
+
+    except Exception:
+        logger.exception("Unexpected error creating query embedding")
         raise LLMError("unknown")

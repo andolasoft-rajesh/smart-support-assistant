@@ -16,3 +16,8 @@ export interface ChatResponse {
   reply: string;
   conversation_id: string;
 }
+
+export interface UploadResponse {
+  filename: string;
+  chunks: number;
+}

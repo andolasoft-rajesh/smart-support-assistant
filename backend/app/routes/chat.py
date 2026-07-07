@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.database import get_db
 from app.schemas import ChatRequest, ChatResponse, ResponseMessage
-from app.services.llm import generate_reply, LLMError
+from app.services.llm import generate_reply, LLMError, SYSTEM
+from app.services.rag import retrieve
 
 router = APIRouter()
 
@@ -27,8 +28,20 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     crud.save_message(db, conv.id, "user", req.message)
     history = crud.load_history(db, conv.id)
 
+    # RAG: pull the chunks most relevant to this question and staple them onto
+    # the system prompt. The "answer ONLY from this context" instruction is what
+    # separates grounded retrieval from a model that hallucinates confidently —
+    # if the answer isn't in the uploaded documents, it must say it doesn't know.
+    context = "\n---\n".join(retrieve(db, req.message))
+    system = (
+        SYSTEM
+        + "\nAnswer using ONLY the context below. "
+        + "If the answer is not in the context, say you don't know.\n"
+        + f"Context:\n{context}"
+    )
+
     try:
-        reply = generate_reply(history)
+        reply = generate_reply(history, system=system)
     except LLMError:
         db.rollback()
         raise HTTPException(status_code=502, detail="Assistant unavailable, please retry")

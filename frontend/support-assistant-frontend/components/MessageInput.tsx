@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface MessageInputProps {
   onSend: (message: string) => void;
+  onUpload: (file: File) => void;
   disabled: boolean;
 }
 
-export default function MessageInput({ onSend, disabled }: MessageInputProps) {
+export default function MessageInput({ onSend, onUpload, disabled }: MessageInputProps) {
   const [input, setInput] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = () => {
     if (input.trim()) {
@@ -24,9 +26,35 @@ export default function MessageInput({ onSend, disabled }: MessageInputProps) {
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onUpload(file);
+    }
+    // Reset so selecting the same file again re-fires onChange.
+    e.target.value = "";
+  };
+
   return (
     <div className="p-4 border-t border-gray-300">
       <div className="flex gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.txt,.md"
+          onChange={handleFileChange}
+          disabled={disabled}
+          className="hidden"
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled}
+          title="Upload a document"
+          aria-label="Upload a document"
+          className="px-3 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-100 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors"
+        >
+          📎
+        </button>
         <input
           type="text"
           value={input}

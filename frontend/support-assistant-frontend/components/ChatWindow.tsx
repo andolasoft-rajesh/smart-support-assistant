@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Message, ChatResponse } from "@/types";
+import { Message, ChatResponse, UploadResponse } from "@/types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = "http://localhost:8001";
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -58,6 +58,46 @@ export default function ChatWindow() {
     }
   };
 
+  const upload = async (file: File) => {
+    try {
+      setError(null);
+      setLoading(true);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed (status ${response.status})`);
+      }
+
+      const data: UploadResponse = await response.json();
+
+      // Show the ingest result inline so the user knows the doc is now
+      // searchable and how many chunks it produced.
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content: `📎 Uploaded "${data.filename}" — indexed ${data.chunks} chunk${
+            data.chunks === 1 ? "" : "s"
+          }. You can now ask questions about it.`,
+        },
+      ]);
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to upload file";
+      setError(errorMessage);
+      console.error("Upload error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
@@ -79,7 +119,7 @@ export default function ChatWindow() {
       <MessageList messages={messages} loading={loading} />
 
       {/* Input */}
-      <MessageInput onSend={send} disabled={loading} />
+      <MessageInput onSend={send} onUpload={upload} disabled={loading} />
     </div>
   );
 }
