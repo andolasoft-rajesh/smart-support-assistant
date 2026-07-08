@@ -1,92 +1,335 @@
-import { useState } from "react";
-import { sendMessage } from "../services/api";
+import { useState, useRef } from "react";
+import { sendMessage, uploadDocument } from "../services/api";
 import type { ChatMessage } from "../types/chat";
 
+
 export default function Chat() {
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+
   const [input, setInput] = useState("");
+
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(null);
+
+  const [conversationId, setConversationId] =
+    useState<string | null>(null);
+
+  const [uploadStatus, setUploadStatus] =
+    useState("");
+
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(null);
+
+
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
 
-    const userMessage = input;
+    if (!input.trim() || loading)
+      return;
 
-    // Show user message immediately
+
+    const userText = input;
+
+
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: userMessage },
+      {
+        role: "user",
+        content: userText
+      }
     ]);
 
+
     setInput("");
+
     setLoading(true);
-    setError("");
+
+
 
     try {
+
       const response = await sendMessage({
-        message: userMessage,
-        conversation_id: conversationId,
+
+        message: userText,
+
+        conversation_id: conversationId
+
       });
 
-      // Save conversation ID returned by backend
-      setConversationId(response.conversation_id);
 
-      // Add assistant reply
+
+      setConversationId(
+        response.conversation_id
+      );
+
+
+
       setMessages((prev) => [
+
         ...prev,
+
         {
           role: "assistant",
-          content: response.reply,
-        },
+          content: response.reply
+        }
+
       ]);
-    } catch (err) {
-      setError("Unable to connect to the backend.");
-    } finally {
-      setLoading(false);
+
+
+
+    } catch {
+
+
+      setMessages((prev)=>[
+
+        ...prev,
+
+        {
+          role:"assistant",
+          content:"Something went wrong."
+        }
+
+      ]);
+
     }
+
+
+    setLoading(false);
+
   };
 
+
+
+
+
+
+  const handleUpload = async(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+
+
+    const file = e.target.files?.[0];
+
+
+    if(!file)
+      return;
+
+
+
+    try {
+
+
+      await uploadDocument(file);
+
+
+      setUploadStatus(
+        `✅ ${file.name} uploaded`
+      );
+
+
+
+    } catch {
+
+
+      setUploadStatus(
+        "❌ Upload failed"
+      );
+
+
+    }
+
+
+  };
+
+
+
+
+
+
   return (
+
     <div className="chat-container">
-      <h1>Smart Support Assistant</h1>
+
+
+      <div className="chat-header">
+
+        <h1>
+          🤖 Smart Support Assistant
+        </h1>
+
+        <p>
+          Ask questions from your documents
+        </p>
+
+      </div>
+
+
+
+
 
       <div className="messages">
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={
-              msg.role === "user"
-                ? "message user-message"
-                : "message assistant-message"
-            }
-          >
-            {msg.content}
-          </div>
-        ))}
+
+
+        {
+          messages.length === 0 && (
+
+            <div className="welcome">
+
+              <h2>
+                Welcome 👋
+              </h2>
+
+              <p>
+                Upload a document and ask questions about it.
+              </p>
+
+            </div>
+
+          )
+        }
+
+
+
+        {
+          messages.map((msg,index)=>(
+
+            <div
+
+              key={index}
+
+              className={
+                msg.role === "user"
+                ?
+                "message user-message"
+                :
+                "message assistant-message"
+              }
+
+            >
+
+              {msg.content}
+
+            </div>
+
+          ))
+        }
+
+
       </div>
 
-      {error && <div className="error">{error}</div>}
+
+
+
+
+      {
+        uploadStatus && (
+
+          <div className="upload-status">
+
+            {uploadStatus}
+
+          </div>
+
+        )
+      }
+
+
+
+
+
 
       <div className="input-area">
+
+
         <input
-          type="text"
-          placeholder="Type your message..."
-          value={input}
-          disabled={loading}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              handleSend();
-            }
-          }}
+
+          type="file"
+
+          hidden
+
+          ref={fileInputRef}
+
+          accept=".pdf,.txt"
+
+          onChange={handleUpload}
+
         />
 
-        <button onClick={handleSend} disabled={loading}>
-          {loading ? "Sending..." : "Send"}
+
+
+        <button
+
+          className="upload-btn"
+
+          onClick={() =>
+            fileInputRef.current?.click()
+          }
+
+        >
+
+          📎
+
         </button>
+
+
+
+
+
+        <input
+
+          type="text"
+
+          placeholder="Ask something..."
+
+          value={input}
+
+          onChange={(e)=>
+            setInput(e.target.value)
+          }
+
+
+          onKeyDown={(e)=>{
+
+            if(e.key==="Enter")
+              handleSend();
+
+          }}
+
+        />
+
+
+
+
+
+        <button
+
+          className="send-btn"
+
+          onClick={handleSend}
+
+          disabled={loading}
+
+        >
+
+          {
+            loading
+            ?
+            "..."
+            :
+            "➤"
+          }
+
+
+        </button>
+
+
+
       </div>
+
+
+
     </div>
+
   );
+
 }

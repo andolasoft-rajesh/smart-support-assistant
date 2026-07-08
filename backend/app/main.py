@@ -1,4 +1,8 @@
 import uuid
+from .database import Base, engine
+from .routes import documents
+from . import document
+from . import chunk
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi import FastAPI, Depends
@@ -12,6 +16,8 @@ from app.database import Base, engine, get_db
 from app.models import Conversation, Message
 
 app = FastAPI(title="Smart Support Assistant")
+Base.metadata.create_all(bind=engine)
+app.include_router(documents.router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
