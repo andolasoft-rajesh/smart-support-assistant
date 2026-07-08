@@ -12,3 +12,11 @@ def ask_gemini(prompt: str):
         contents=prompt
     )
     return response.text
+
+def create_embedding(text: str):
+    response = client.models.embed_content(
+       model="gemini-embedding-001",
+        contents=text
+    )
+
+    return response.embeddings[0].values
