@@ -11,10 +11,12 @@ class ResponseMessage(BaseModel):
     content: str
 
 
+
 class ChatResponse(BaseModel):
     user: ResponseMessage
     reply: str
-    conversation_id: str    
+    conversation_id: str
+    sources: list[str] = [] # Add this field to return source filenames    
 
 class ConversationSummary(BaseModel):
     conversation_id: str

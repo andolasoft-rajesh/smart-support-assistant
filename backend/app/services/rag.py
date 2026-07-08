@@ -44,3 +44,21 @@ def store_chunks(db: Session, document: str, chunks: list[str]) -> int:
 
     db.flush()
     return len(chunks)
+
+def retrieve_relevant_chunks(db: Session, query: str, top_k: int = 3) -> list[str]:
+    """
+    Embeds the user query and searches the database for the closest matching chunks.
+    """
+    if db.query(Chunk).first() is None:
+        return []
+
+    query_embedding = embed_texts([query])[0]
+
+    results = (
+        db.query(Chunk)
+        .order_by(Chunk.embedding.cosine_distance(query_embedding))
+        .limit(top_k)
+        .all()
+    )
+    
+    return [chunk.content for chunk in results]

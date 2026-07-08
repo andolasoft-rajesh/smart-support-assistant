@@ -52,20 +52,16 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         raise LLMError("unknown")    
 
 
-def generate_reply(history: list[dict]) -> str:
+def generate_reply(history: list[dict], context: str = "") -> str:
     """
     history: [{"role": "user"|"ai", "content": "..."}, ...]
-    in chronological order, already capped by the caller (see crud.load_history).
-    Returns the assistant's reply text, or raises LLMError.
+    context: A string of concatenated document chunks to ground the LLM's answer.
     """
-    
     if not history:
-        
         raise LLMError("empty_history")
 
     try:
-        # Convert our stored roles to what Gemini expects: "user" or "model"
-        
+        # Convert stored roles to what Gemini expects: "user" or "model"
         contents = []
         for msg in history:
             role = "user" if msg["role"] == "user" else "model"
@@ -73,23 +69,38 @@ def generate_reply(history: list[dict]) -> str:
                 types.Content(role=role, parts=[types.Part(text=msg["content"])])
             )
         
+        # Build the system instruction, appending the document context if it exists
+        system_instruction = get_system_prompt()
+        if context:
+            system_instruction += f"\n\n[CRITICAL CONTEXT FROM UPLOADED DOCUMENTS]\nUse the following document text to accurately answer the user's question:\n{context}"
 
-        
         response = _client.models.generate_content(
             model=MODEL,
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=get_system_prompt(),
+                system_instruction=system_instruction,
                 max_output_tokens=MAX_TOKENS,
             ),
         )
-        
 
         if not response.text:
-            
             raise LLMError("empty_response")
 
         return response.text
+
+    except genai_errors.ClientError as e:
+        logger.error("LLM client error: %s", str(e))
+        raise LLMError("client_error")
+    except genai_errors.ServerError as e:
+        logger.warning("LLM server error: %s", str(e))
+        raise LLMError("server_error")
+    except LLMError:
+        raise 
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        logger.exception("Unexpected error calling LLM")
+        raise LLMError("unknown")
 
     except genai_errors.ClientError as e:
         # Covers bad/missing API key (401/403) and bad requests (400)

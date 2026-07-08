@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 
 from .. import crud
 from ..database import get_db
-from ..schemas import ChatRequest, ChatResponse, ResponseMessage,ConversationListResponse,HistoryResponse,UploadResponse
+from ..schemas import ChatRequest, ChatResponse, ResponseMessage, ConversationListResponse, HistoryResponse
 from ..services.llm import generate_reply, LLMError
-
+# FIX: Import the retrieval utility explicitly
+from ..services.rag import retrieve_relevant_chunks
 
 router = APIRouter()
 
@@ -27,8 +28,17 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     crud.save_message(db, conv.id, "user", req.message)
     history = crud.load_history(db, conv.id)
 
+    # Fetch relevant vector chunks from our uploaded documents
     try:
-        reply = generate_reply(history)
+        relevant_chunks = retrieve_relevant_chunks(db, req.message, top_k=3)
+        context_string = "\n\n---\n\n".join(relevant_chunks)
+    except Exception as e:
+        print(f"Retrieval error: {e}")
+        context_string = ""
+
+    try:
+        # Pass both history and retrieved context safely into our updated function
+        reply = generate_reply(history, context=context_string)
     except LLMError:
         db.rollback()
         raise HTTPException(status_code=502, detail="Assistant unavailable, please retry")
@@ -42,6 +52,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         conversation_id=str(conv.id),
     )
 
+
 @router.get("/chat/{conversation_id}/history", response_model=HistoryResponse)
 def get_history(conversation_id: str, db: Session = Depends(get_db)):
     try:
@@ -51,6 +62,7 @@ def get_history(conversation_id: str, db: Session = Depends(get_db)):
 
     history = crud.load_history(db, conv.id)
     return HistoryResponse(messages=history)
+
 
 @router.delete("/chat/{conversation_id}")
 def delete_conversation_route(conversation_id: str, db: Session = Depends(get_db)):

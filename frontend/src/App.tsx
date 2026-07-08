@@ -84,6 +84,7 @@ function App() {
         id: Date.now() + 1,
         text: response.data.reply,
         sender: "assistant",
+        sources: response.data.sources,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -171,15 +172,13 @@ function App() {
             <p>No messages yet.</p>
           ) : (
             messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={
-                  msg.sender === "user"
-                    ? "message user"
-                    : "message assistant"
-                }
-              >
+              <div key={msg.id} className={`message ${msg.sender}`}>
                 {msg.text}
+                {msg.sources && msg.sources.length > 0 && (
+                  <div className="sources">
+                    <small>Sources: {msg.sources.join(", ")}</small>
+                  </div>
+                )}
               </div>
             ))
           )}
