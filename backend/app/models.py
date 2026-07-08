@@ -4,6 +4,16 @@ from sqlalchemy import Column, String, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .database import Base
+from pgvector.sqlalchemy import Vector
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document = Column(String, nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(3072), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class Conversation(Base):
     __tablename__ = "conversations"

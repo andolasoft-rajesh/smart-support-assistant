@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import crud
 from ..database import get_db
-from ..schemas import ChatRequest, ChatResponse, ResponseMessage,ConversationListResponse,HistoryResponse
+from ..schemas import ChatRequest, ChatResponse, ResponseMessage,ConversationListResponse,HistoryResponse,UploadResponse
 from ..services.llm import generate_reply, LLMError
 
 
@@ -51,3 +51,13 @@ def get_history(conversation_id: str, db: Session = Depends(get_db)):
 
     history = crud.load_history(db, conv.id)
     return HistoryResponse(messages=history)
+
+@router.delete("/chat/{conversation_id}")
+def delete_conversation_route(conversation_id: str, db: Session = Depends(get_db)):
+    try:
+        crud.delete_conversation(db, conversation_id)
+        return {"detail": "Conversation deleted successfully"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation_id")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Conversation not found")

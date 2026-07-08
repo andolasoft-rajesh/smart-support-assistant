@@ -37,13 +37,149 @@ with open("project_context.txt", "w", encoding="utf-8") as outfile:
 print("Code consolidated into project_context.txt!")
 
 ==================================================
+FILE: .\backend\.env.example
+==================================================
+
+GEMINI_API_KEY=your_api_key_here
+
+==================================================
+FILE: .\backend\app\config.py
+==================================================
+
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+
+_PROMPT_PATH = Path(__file__).parent / "prompts" / "system_prompt.txt"
+
+def get_system_prompt() -> str:
+    """Load the system prompt from config file."""
+    return _PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+==================================================
+FILE: .\backend\app\crud.py
+==================================================
+
+import uuid
+from sqlalchemy.orm import Session
+from .models import Conversation, Message
+
+HISTORY_LIMIT = 20
+
+
+def get_or_create_conversation(db: Session, conversation_id):
+    """Return an existing conversation, or create a new one if None was given."""
+    if conversation_id is None:
+        conv = Conversation()
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+        return conv
+
+    try:
+        conv_uuid = uuid.UUID(str(conversation_id))
+    except (ValueError, AttributeError):
+        raise ValueError("conversation_id is not a valid UUID")
+
+    conv = db.query(Conversation).filter(Conversation.id == conv_uuid).first()
+    if conv is None:
+        raise LookupError("Conversation not found")
+    return conv
+
+
+def save_message(db: Session, conversation_id, role: str, content: str):
+    """Save a single message row. Flushes so it's visible to queries in
+    the same transaction, but does not commit — caller controls that."""
+    message = Message(
+        conversation_id=conversation_id,
+        role=role,
+        content=content,
+    )
+    db.add(message)
+    db.flush()
+    return message
+
+
+def load_history(db: Session, conversation_id) -> list[dict]:
+    """Load the last HISTORY_LIMIT messages for a conversation, oldest first."""
+    messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.desc())
+        .limit(HISTORY_LIMIT)
+        .all()
+    )
+    messages.reverse()  # we fetched newest-first for the LIMIT, now flip to chronological
+    return [{"role": m.role, "content": m.content} for m in messages]
+
+def list_recent_conversations(db: Session, limit: int = 10):
+    """
+    Return the most recent conversations, each with the first user message
+    as a short preview. Newest conversation first. Skips empty conversations.
+    """
+    # Fetch a larger batch initially to account for any empty ones we might skip
+    conversations = (
+        db.query(Conversation)
+        .order_by(Conversation.created_at.desc())
+        .limit(limit * 3) 
+        .all()
+    )
+
+    summaries = []
+    for conv in conversations:
+        first_message = (
+            db.query(Message)
+            .filter(Message.conversation_id == conv.id, Message.role == "user")
+            .order_by(Message.created_at.asc())
+            .first()
+        )
+        
+        # The Magic Fix: If there is no message yet, completely skip it
+        if not first_message:
+            continue
+            
+        summaries.append({
+            "conversation_id": str(conv.id),
+            "preview": first_message.content[:60],
+            "created_at": conv.created_at.isoformat(),
+        })
+
+        # Stop once we have gathered the exact amount requested (10)
+        if len(summaries) == limit:
+            break
+
+    return summaries
+
+def delete_conversation(db: Session, conversation_id: str):
+    """Delete a conversation and all of its associated messages."""
+    try:
+        conv_uuid = uuid.UUID(str(conversation_id))
+    except (ValueError, AttributeError):
+        raise ValueError("conversation_id is not a valid UUID")
+
+    # Delete child messages first to avoid foreign key constraint errors
+    db.query(Message).filter(Message.conversation_id == conv_uuid).delete()
+    
+    # Delete the parent conversation
+    result = db.query(Conversation).filter(Conversation.id == conv_uuid).delete()
+    db.commit()
+    
+    if result == 0:
+        raise LookupError("Conversation not found")
+
+==================================================
 FILE: .\backend\app\database.py
 ==================================================
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/assistant"
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/assistant"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -68,6 +204,11 @@ from sqlalchemy.orm import Session
 from .models import Conversation
 from .routes.chat import router as chat_router
 from fastapi.middleware.cors import CORSMiddleware
+from .routes.documents import router as documents_router
+
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
 app.add_middleware(
@@ -80,6 +221,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(chat_router)
+app.include_router(documents_router)
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -125,6 +268,16 @@ from sqlalchemy import Column, String, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .database import Base
+from pgvector.sqlalchemy import Vector
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document = Column(String, nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(3072), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -157,6 +310,37 @@ class ChatRequest(BaseModel):
     conversation_id:Optional[UUID]=None
     message: str
 
+class ResponseMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatResponse(BaseModel):
+    user: ResponseMessage
+    reply: str
+    conversation_id: str    
+
+class ConversationSummary(BaseModel):
+    conversation_id: str
+    preview: str
+    created_at: str
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationSummary]    
+
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
+
+class HistoryResponse(BaseModel):
+    messages: list[HistoryMessage]
+
+class UploadResponse(BaseModel):
+    filename: str
+    chunks: int
+
 ==================================================
 FILE: .\backend\app\routes\chat.py
 ==================================================
@@ -164,53 +348,284 @@ FILE: .\backend\app\routes\chat.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from .. import crud
 from ..database import get_db
-from ..schemas import ChatRequest
-from ..models import Conversation, Message
+from ..schemas import ChatRequest, ChatResponse, ResponseMessage,ConversationListResponse,HistoryResponse,UploadResponse
+from ..services.llm import generate_reply, LLMError
+
 
 router = APIRouter()
 
+@router.get("/conversations", response_model=ConversationListResponse)
+def list_conversations(db: Session = Depends(get_db)):
+    conversations = crud.list_recent_conversations(db, limit=10)
+    return ConversationListResponse(conversations=conversations)
 
-@router.post("/chat")
-def chat(
-    req: ChatRequest,
-    db: Session = Depends(get_db)
-):
-    if req.conversation_id is None:
 
-        conversation = Conversation()
+@router.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest, db: Session = Depends(get_db)):
+    try:
+        conv = crud.get_or_create_conversation(db, req.conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation_id")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
-        db.add(conversation)
+    crud.save_message(db, conv.id, "user", req.message)
+    history = crud.load_history(db, conv.id)
 
-    else:
+    try:
+        reply = generate_reply(history)
+    except LLMError:
+        db.rollback()
+        raise HTTPException(status_code=502, detail="Assistant unavailable, please retry")
 
-        conversation = (
-            db.query(Conversation)
-            .filter(Conversation.id == req.conversation_id)
-            .first()
-        )
+    crud.save_message(db, conv.id, "assistant", reply)
+    db.commit()
 
-        if conversation is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Conversation not found"
+    return ChatResponse(
+        user=ResponseMessage(role="user", content=req.message),
+        reply=reply,
+        conversation_id=str(conv.id),
+    )
+
+@router.get("/chat/{conversation_id}/history", response_model=HistoryResponse)
+def get_history(conversation_id: str, db: Session = Depends(get_db)):
+    try:
+        conv = crud.get_or_create_conversation(db, conversation_id)
+    except (ValueError, LookupError):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    history = crud.load_history(db, conv.id)
+    return HistoryResponse(messages=history)
+
+@router.delete("/chat/{conversation_id}")
+def delete_conversation_route(conversation_id: str, db: Session = Depends(get_db)):
+    try:
+        crud.delete_conversation(db, conversation_id)
+        return {"detail": "Conversation deleted successfully"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation_id")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+==================================================
+FILE: .\backend\app\routes\documents.py
+==================================================
+
+import io
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pypdf import PdfReader
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.schemas import UploadResponse
+from app.services.llm import LLMError
+from app.services.rag import chunk_text, store_chunks
+
+router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+def extract_text(filename: str, raw: bytes) -> str:
+    """Pull plain text out of the uploaded bytes based on the file type."""
+    if filename.lower().endswith(".pdf"):
+        reader = PdfReader(io.BytesIO(raw))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    return raw.decode("utf-8", errors="ignore")
+
+
+@router.post("/upload", response_model=UploadResponse)
+async def upload(file: UploadFile, db: Session = Depends(get_db)):
+    raw = await file.read()
+    text = extract_text(file.filename, raw)
+
+    chunks = chunk_text(text)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No extractable text in file")
+
+    try:
+        count = store_chunks(db, file.filename, chunks)
+    except LLMError:
+        db.rollback()
+        raise HTTPException(status_code=502, detail="Embedding failed, please retry")
+
+    db.commit()
+    return UploadResponse(filename=file.filename, chunks=count)
+
+==================================================
+FILE: .\backend\app\services\llm.py
+==================================================
+
+import logging
+
+from google import genai
+from google.genai import types
+from google.genai import errors as genai_errors
+
+from ..config import GEMINI_API_KEY, get_system_prompt
+
+logger = logging.getLogger("llm")
+
+MODEL = "gemini-2.5-flash"
+MAX_TOKENS = 500
+
+_client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+class LLMError(Exception):
+    """Raised for any failure talking to the model. Routes catch this one
+    type and don't need to know *why* it failed — only that it did."""
+
+EMBEDDING_MODEL = "gemini-embedding-001"
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """
+    Embed a list of texts, returning one vector per input text, in the same order.
+    Raises LLMError on failure — same pattern as generate_reply.
+    """
+    if not texts:
+        return []
+
+    try:
+        embeddings = []
+        for text in texts:
+            response = _client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=text,
+            )
+            embeddings.append(response.embeddings[0].values)
+        return embeddings
+
+    except genai_errors.ClientError as e:
+        logger.error("Embedding client error: %s", str(e))
+        raise LLMError("client_error")
+
+    except genai_errors.ServerError as e:
+        logger.warning("Embedding server error: %s", str(e))
+        raise LLMError("server_error")
+
+    except Exception:
+        logger.exception("Unexpected error embedding texts")
+        raise LLMError("unknown")    
+
+
+def generate_reply(history: list[dict]) -> str:
+    """
+    history: [{"role": "user"|"ai", "content": "..."}, ...]
+    in chronological order, already capped by the caller (see crud.load_history).
+    Returns the assistant's reply text, or raises LLMError.
+    """
+    
+    if not history:
+        
+        raise LLMError("empty_history")
+
+    try:
+        # Convert our stored roles to what Gemini expects: "user" or "model"
+        
+        contents = []
+        for msg in history:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append(
+                types.Content(role=role, parts=[types.Part(text=msg["content"])])
             )
         
 
-    message = Message(
-    conversation=conversation,
-    role="user",
-    content=req.message
-)   
-    db.add(message)
-    db.commit()
-    db.refresh(conversation)
-    
+        
+        response = _client.models.generate_content(
+            model=MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=get_system_prompt(),
+                max_output_tokens=MAX_TOKENS,
+            ),
+        )
+        
 
-    return {
-    "conversation_id": str(conversation.id),
-    "message": req.message
-}
+        if not response.text:
+            
+            raise LLMError("empty_response")
+
+        return response.text
+
+    except genai_errors.ClientError as e:
+        # Covers bad/missing API key (401/403) and bad requests (400)
+        
+        logger.error("LLM client error: %s", str(e))
+        raise LLMError("client_error")
+
+    except genai_errors.ServerError as e:
+        # Covers Gemini-side outages, timeouts, rate limits (5xx)
+        
+        logger.warning("LLM server error: %s", str(e))
+        raise LLMError("server_error")
+
+    except LLMError:
+        raise  # don't let our own deliberate raise get caught by the next line
+
+    except Exception as exc:
+        # last-resort catch: never let an unexpected exception leak a
+        # traceback (or raw provider error text) up to the user
+        
+        import traceback
+        traceback.print_exc()
+        logger.exception("Unexpected error calling LLM")
+        raise LLMError("unknown")
+
+==================================================
+FILE: .\backend\app\services\rag.py
+==================================================
+
+from sqlalchemy.orm import Session
+
+from app.models import Chunk
+from app.services.llm import embed_texts
+
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+
+
+def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """
+    Split text into overlapping windows of `size` characters, stepping forward
+    by (size - overlap) each time. Returns the non-empty chunks in order.
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    step = max(1, size - overlap)
+    chunks = []
+    for start in range(0, len(text), step):
+        chunk = text[start : start + size].strip()
+        if chunk:
+            chunks.append(chunk)
+    return chunks
+
+
+def store_chunks(db: Session, document: str, chunks: list[str]) -> int:
+    """
+    Embed each chunk and insert it as a row tied to `document`.
+    Returns the number of chunks stored.
+    """
+    if not chunks:
+        return 0
+
+    embeddings = embed_texts(chunks)
+
+    for content, embedding in zip(chunks, embeddings):
+        db.add(Chunk(document=document, content=content, embedding=embedding))
+
+    db.flush()
+    return len(chunks)
+
+==================================================
+FILE: .\backend\app\services\__init__.py
+==================================================
+
+
 
 ==================================================
 FILE: .\frontend\eslint.config.js
@@ -3452,22 +3867,69 @@ export default defineConfig({
 FILE: .\frontend\src\App.tsx
 ==================================================
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 import api from "./services/api";
 import type { Message } from "./types/message";
-
+import type { ConversationSummary } from "./types/chat";
 
 function App() {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+
+  const loadConversations = async () => {
+    try {
+      const response = await api.get("/conversations");
+      setConversations(response.data.conversations);
+    } catch {
+      // Silently ignore — sidebar just stays empty/stale if this fails
+    }
+  };
+
+  useEffect(() => {
+  const fetchConversations = async () => {
+    try {
+      const response = await api.get("/conversations");
+      setConversations(response.data.conversations);
+    } catch {
+      // Silently ignore — sidebar just stays empty/stale if this fails
+    }
+  };
+
+  fetchConversations();
+}, []);
+
+  const handleSelectConversation = async (id: string) => {
+    setConversationId(id);
+    setLoading(true);
+    try {
+      const response = await api.get(`/chat/${id}/history`);
+      const loadedMessages: Message[] = response.data.messages.map(
+        (m: { role: string; content: string }, index: number) => ({
+          id: Date.now() + index,
+          text: m.content,
+          sender: m.role === "user" ? "user" : "assistant",
+        })
+      );
+      setMessages(loadedMessages);
+    } catch {
+      setMessages([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNewConversation = () => {
+    setConversationId(undefined);
+    setMessages([]);
+  };
 
   const handleSend = async () => {
     if (!message.trim()) return;
 
-    // Save the user's message
     const userMessage: Message = {
       id: Date.now(),
       text: message,
@@ -3486,18 +3948,18 @@ function App() {
         message: currentMessage,
         conversation_id: conversationId,
       });
-      
 
-      // Save assistant response
       const assistantMessage: Message = {
         id: Date.now() + 1,
-        text: response.data.message,
+        text: response.data.reply,
         sender: "assistant",
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-
       setConversationId(response.data.conversation_id);
+
+      // Refresh sidebar so a brand-new conversation shows up immediately
+      loadConversations();
     } catch {
       const errorMessage: Message = {
         id: Date.now() + 1,
@@ -3511,11 +3973,66 @@ function App() {
     }
   };
 
+  const handleDeleteConversation = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // Prevents the conversation from being selected when you click delete
+    
+    if (!window.confirm("Are you sure you want to delete this conversation?")) return;
+
+    try {
+      await api.delete(`/chat/${id}`);
+      
+      // If the user deleted the chat they are currently viewing, clear the screen
+      if (id === conversationId) {
+        handleNewConversation();
+      }
+      
+      // Refresh the sidebar
+      loadConversations();
+    } catch (error) {
+      console.error("Failed to delete conversation", error);
+    }
+  };
+
   return (
     <div className="app">
+      <div className="sidebar">
+        <div className="sidebar-header">
+          <span>Conversations</span>
+          <button className="new-chat-btn" onClick={handleNewConversation}>
+            + New
+          </button>
+        </div>
+        <div className="conversation-list">
+          {conversations.length === 0 ? (
+            <p className="no-conversations">No past conversations</p>
+          ) : (
+            conversations.map((conv) => (
+              <div
+                key={conv.conversation_id}
+                className={
+                  conv.conversation_id === conversationId
+                    ? "conversation-item active"
+                    : "conversation-item"
+                }
+                onClick={() => handleSelectConversation(conv.conversation_id)}
+              >
+                <span className="conversation-preview">{conv.preview}</span>
+                <button 
+                  className="delete-btn" 
+                  onClick={(e) => handleDeleteConversation(e, conv.conversation_id)}
+                  title="Delete conversation"
+                >
+                  ×
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <div className="chat-container">
         <div className="header">
-          Smart Support Assistant
+          <h1>SMART-SUPPORT-ASSISTANT</h1>
         </div>
 
         <div className="messages">
@@ -3558,6 +4075,8 @@ function App() {
       </div>
     </div>
   );
+
+
 }
 
 export default App;
@@ -3597,14 +4116,23 @@ export default api;
 FILE: .\frontend\src\types\chat.ts
 ==================================================
 
-export interface ChatRequest {
-  message: string;
-  conversation_id?: string;
+export interface ConversationSummary {
+  conversation_id: string;
+  preview: string;
+  created_at: string;
 }
 
-export interface ChatResponse {
-  message: string;
-  conversation_id: string;
+export interface ConversationListResponse {
+  conversations: ConversationSummary[];
+}
+
+export interface HistoryMessage {
+  role: string;
+  content: string;
+}
+
+export interface HistoryResponse {
+  messages: HistoryMessage[];
 }
 
 ==================================================

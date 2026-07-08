@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from .models import Conversation
 from .routes.chat import router as chat_router
 from fastapi.middleware.cors import CORSMiddleware
+from .routes.documents import router as documents_router
 
 import logging
 
@@ -22,6 +23,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(chat_router)
+app.include_router(documents_router)
+
 Base.metadata.create_all(bind=engine)
 
 

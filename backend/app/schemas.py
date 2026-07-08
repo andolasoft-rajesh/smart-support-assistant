@@ -32,3 +32,15 @@ class HistoryMessage(BaseModel):
 
 class HistoryResponse(BaseModel):
     messages: list[HistoryMessage]
+
+class UploadResponse(BaseModel):
+    filename: str
+    chunks: int
+
+class DocumentInfo(BaseModel):
+    document: str
+    chunk_count: int
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentInfo]    

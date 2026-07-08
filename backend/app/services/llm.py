@@ -18,6 +18,39 @@ class LLMError(Exception):
     """Raised for any failure talking to the model. Routes catch this one
     type and don't need to know *why* it failed — only that it did."""
 
+EMBEDDING_MODEL = "gemini-embedding-001"
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """
+    Embed a list of texts, returning one vector per input text, in the same order.
+    Raises LLMError on failure — same pattern as generate_reply.
+    """
+    if not texts:
+        return []
+
+    try:
+        embeddings = []
+        for text in texts:
+            response = _client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=text,
+            )
+            embeddings.append(response.embeddings[0].values)
+        return embeddings
+
+    except genai_errors.ClientError as e:
+        logger.error("Embedding client error: %s", str(e))
+        raise LLMError("client_error")
+
+    except genai_errors.ServerError as e:
+        logger.warning("Embedding server error: %s", str(e))
+        raise LLMError("server_error")
+
+    except Exception:
+        logger.exception("Unexpected error embedding texts")
+        raise LLMError("unknown")    
+
 
 def generate_reply(history: list[dict]) -> str:
     """

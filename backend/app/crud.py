@@ -1,9 +1,19 @@
 import uuid
 from sqlalchemy.orm import Session
-from .models import Conversation, Message
+from .models import Conversation, Message, Chunk
+from sqlalchemy import func
 
 HISTORY_LIMIT = 20
 
+def list_documents(db: Session):
+    """Return each distinct document filename with its chunk count."""
+    results = (
+        db.query(Chunk.document, func.count(Chunk.id).label("chunk_count"))
+        .group_by(Chunk.document)
+        .order_by(Chunk.document)
+        .all()
+    )
+    return [{"document": doc, "chunk_count": count} for doc, count in results]
 
 def get_or_create_conversation(db: Session, conversation_id):
     """Return an existing conversation, or create a new one if None was given."""
@@ -53,12 +63,13 @@ def load_history(db: Session, conversation_id) -> list[dict]:
 def list_recent_conversations(db: Session, limit: int = 10):
     """
     Return the most recent conversations, each with the first user message
-    as a short preview. Newest conversation first.
+    as a short preview. Newest conversation first. Skips empty conversations.
     """
+    # Fetch a larger batch initially to account for any empty ones we might skip
     conversations = (
         db.query(Conversation)
         .order_by(Conversation.created_at.desc())
-        .limit(limit)
+        .limit(limit * 3) 
         .all()
     )
 
@@ -70,11 +81,36 @@ def list_recent_conversations(db: Session, limit: int = 10):
             .order_by(Message.created_at.asc())
             .first()
         )
-        preview = first_message.content[:60] if first_message else "(empty conversation)"
+        
+        # The Magic Fix: If there is no message yet, completely skip it
+        if not first_message:
+            continue
+            
         summaries.append({
             "conversation_id": str(conv.id),
-            "preview": preview,
+            "preview": first_message.content[:60],
             "created_at": conv.created_at.isoformat(),
         })
 
+        # Stop once we have gathered the exact amount requested (10)
+        if len(summaries) == limit:
+            break
+
     return summaries
+
+def delete_conversation(db: Session, conversation_id: str):
+    """Delete a conversation and all of its associated messages."""
+    try:
+        conv_uuid = uuid.UUID(str(conversation_id))
+    except (ValueError, AttributeError):
+        raise ValueError("conversation_id is not a valid UUID")
+
+    # Delete child messages first to avoid foreign key constraint errors
+    db.query(Message).filter(Message.conversation_id == conv_uuid).delete()
+    
+    # Delete the parent conversation
+    result = db.query(Conversation).filter(Conversation.id == conv_uuid).delete()
+    db.commit()
+    
+    if result == 0:
+        raise LookupError("Conversation not found")

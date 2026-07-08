@@ -104,6 +104,26 @@ function App() {
     }
   };
 
+  const handleDeleteConversation = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // Prevents the conversation from being selected when you click delete
+    
+    if (!window.confirm("Are you sure you want to delete this conversation?")) return;
+
+    try {
+      await api.delete(`/chat/${id}`);
+      
+      // If the user deleted the chat they are currently viewing, clear the screen
+      if (id === conversationId) {
+        handleNewConversation();
+      }
+      
+      // Refresh the sidebar
+      loadConversations();
+    } catch (error) {
+      console.error("Failed to delete conversation", error);
+    }
+  };
+
   return (
     <div className="app">
       <div className="sidebar">
@@ -127,7 +147,14 @@ function App() {
                 }
                 onClick={() => handleSelectConversation(conv.conversation_id)}
               >
-                {conv.preview}
+                <span className="conversation-preview">{conv.preview}</span>
+                <button 
+                  className="delete-btn" 
+                  onClick={(e) => handleDeleteConversation(e, conv.conversation_id)}
+                  title="Delete conversation"
+                >
+                  ×
+                </button>
               </div>
             ))
           )}
@@ -179,6 +206,8 @@ function App() {
       </div>
     </div>
   );
+
+
 }
 
 export default App;
