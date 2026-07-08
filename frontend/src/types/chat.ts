@@ -1,12 +1,18 @@
+export interface ConversationSummary {
+  conversation_id: string;
+  preview: string;
+  created_at: string;
+}
 
+export interface ConversationListResponse {
+  conversations: ConversationSummary[];
+}
 
-export interface ResponseMessage {
+export interface HistoryMessage {
   role: string;
   content: string;
 }
 
-export interface ChatResponse {
-  user: ResponseMessage;
-  reply: string;
-  conversation_id: string;
+export interface HistoryResponse {
+  messages: HistoryMessage[];
 }

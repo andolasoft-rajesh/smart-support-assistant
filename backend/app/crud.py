@@ -49,3 +49,32 @@ def load_history(db: Session, conversation_id) -> list[dict]:
     )
     messages.reverse()  # we fetched newest-first for the LIMIT, now flip to chronological
     return [{"role": m.role, "content": m.content} for m in messages]
+
+def list_recent_conversations(db: Session, limit: int = 10):
+    """
+    Return the most recent conversations, each with the first user message
+    as a short preview. Newest conversation first.
+    """
+    conversations = (
+        db.query(Conversation)
+        .order_by(Conversation.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    summaries = []
+    for conv in conversations:
+        first_message = (
+            db.query(Message)
+            .filter(Message.conversation_id == conv.id, Message.role == "user")
+            .order_by(Message.created_at.asc())
+            .first()
+        )
+        preview = first_message.content[:60] if first_message else "(empty conversation)"
+        summaries.append({
+            "conversation_id": str(conv.id),
+            "preview": preview,
+            "created_at": conv.created_at.isoformat(),
+        })
+
+    return summaries

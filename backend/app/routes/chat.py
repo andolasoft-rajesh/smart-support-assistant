@@ -3,10 +3,16 @@ from sqlalchemy.orm import Session
 
 from .. import crud
 from ..database import get_db
-from ..schemas import ChatRequest, ChatResponse, ResponseMessage
+from ..schemas import ChatRequest, ChatResponse, ResponseMessage,ConversationListResponse,HistoryResponse
 from ..services.llm import generate_reply, LLMError
 
+
 router = APIRouter()
+
+@router.get("/conversations", response_model=ConversationListResponse)
+def list_conversations(db: Session = Depends(get_db)):
+    conversations = crud.list_recent_conversations(db, limit=10)
+    return ConversationListResponse(conversations=conversations)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -35,3 +41,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         reply=reply,
         conversation_id=str(conv.id),
     )
+
+@router.get("/chat/{conversation_id}/history", response_model=HistoryResponse)
+def get_history(conversation_id: str, db: Session = Depends(get_db)):
+    try:
+        conv = crud.get_or_create_conversation(db, conversation_id)
+    except (ValueError, LookupError):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    history = crud.load_history(db, conv.id)
+    return HistoryResponse(messages=history)
