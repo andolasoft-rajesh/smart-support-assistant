@@ -10,6 +10,7 @@ from ..gemini_service import create_embedding
 from ..services.file_extractor import extract_text
 from ..services.chunker import create_chunks
 
+
 router = APIRouter(
     prefix="/documents",
     tags=["Documents"]
@@ -22,26 +23,50 @@ async def upload_document(
     db: Session = Depends(get_db)
 ):
 
-    # Extract text
-    text = extract_text(file.file, file.filename)
+    # Try extracting text from file
+    try:
+        text = extract_text(
+            file.file,
+            file.filename
+        )
 
-    # Create chunks
-    chunks = create_chunks(text)
+    except Exception:
+        text = ""
 
-    # Delete existing document with same filename
+    # Create chunks only if text exists
+    if text.strip():
+
+        chunks = create_chunks(text)
+
+    else:
+
+        chunks = []
+
+    # Check existing document
     existing_document = db.query(Document).filter(
         Document.filename == file.filename
     ).first()
 
+    # Delete old document and chunks
     if existing_document:
+
+        db.query(Chunk).filter(
+            Chunk.document_id == existing_document.id
+        ).delete()
+
         db.delete(existing_document)
+
         db.commit()
 
     # Create new document
-    document = Document(filename=file.filename)
+    document = Document(
+        filename=file.filename
+    )
 
     db.add(document)
+
     db.commit()
+
     db.refresh(document)
 
     # Save chunks with embeddings
@@ -53,7 +78,7 @@ async def upload_document(
             document_id=document.id,
             chunk_index=index,
             content=chunk_text,
-            embedding=json.dumps(embedding)
+            embedding=str(embedding)
         )
 
         db.add(chunk)
@@ -61,14 +86,16 @@ async def upload_document(
     db.commit()
 
     return {
-        "message": "Document uploaded successfully",
+        "message": "File uploaded successfully",
         "filename": file.filename,
         "chunks_saved": len(chunks)
     }
 
 
 @router.get("/")
-def list_documents(db: Session = Depends(get_db)):
+def list_documents(
+    db: Session = Depends(get_db)
+):
 
     documents = db.query(Document).all()
 

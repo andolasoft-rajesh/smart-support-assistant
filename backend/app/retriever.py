@@ -1,7 +1,8 @@
-import json
+import ast
 
 from sqlalchemy.orm import Session
 
+from .document import Document
 from .chunk import Chunk
 from .gemini_service import create_embedding
 from .similarity import cosine_similarity
@@ -13,39 +14,55 @@ def retrieve_relevant_chunks(
     top_k: int = 3
 ):
 
-    # Create embedding for the user's question
     question_embedding = create_embedding(question)
 
-    # Get all chunks from PostgreSQL
-    chunks = db.query(Chunk).all()
+    latest_document = (
+        db.query(Document)
+        .order_by(Document.uploaded_at.desc())
+        .first()
+    )
 
-    scores = []
+    if not latest_document:
+        return []
 
-    # Compare question embedding with every chunk embedding
+    chunks = (
+        db.query(Chunk)
+        .filter(
+            Chunk.document_id == latest_document.id
+        )
+        .all()
+    )
+
+    scored_chunks = []
+
     for chunk in chunks:
 
-        chunk_embedding = json.loads(chunk.embedding)
+        if not chunk.embedding:
+            continue
 
-        similarity = cosine_similarity(
+        chunk_embedding = ast.literal_eval(
+            chunk.embedding
+        )
+
+        score = cosine_similarity(
             question_embedding,
             chunk_embedding
         )
 
-        scores.append(
+        scored_chunks.append(
             (
-                similarity,
+                score,
                 chunk.content
             )
         )
 
-    # Highest similarity first
-    scores.sort(
+    scored_chunks.sort(
         key=lambda x: x[0],
         reverse=True
     )
 
-    # Return top matching chunks
     return [
         content
-        for _, content in scores[:top_k]
+        for score, content in scored_chunks[:top_k]
+        if score > 0.70
     ]

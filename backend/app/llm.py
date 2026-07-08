@@ -4,11 +4,18 @@ from google import genai
 
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+api_key = os.getenv("GEMINI_API_KEY")
+
+print("USING KEY:", api_key[:10] if api_key else "NO KEY")
+
+client = genai.Client(api_key=api_key)
+
 
 def ask_llm(prompt: str):
+
     response = client.models.generate_content(
-          model="gemini-2.5-flash", # ✅ correct line
+        model="gemini-2.0-flash",
         contents=prompt
     )
+
     return response.text
