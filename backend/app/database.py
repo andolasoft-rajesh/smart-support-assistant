@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 
-DATABASE_URL = "postgresql://postgres:Barsa%40123@localhost:5432/smart-support-assistant"
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/assistant"
 
 
 engine = create_engine(

@@ -1,20 +1,19 @@
+import os
 import uuid
-from .database import Base, engine
-from .routes import documents
-from . import document
-from . import chunk
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+
+from .database import Base, engine, get_db
+from .routes import documents
+from . import document, chunk
+from .retriever import retrieve_relevant_chunks
 from app.llm import ask_llm
+from app.models import Conversation, Message
+
 from pydantic import BaseModel
 from typing import Optional
 from uuid import UUID
-from  .retriever import retrieve_relevant_chunks
-
-from app.database import Base, engine, get_db
-from app.models import Conversation, Message
 
 app = FastAPI(title="Smart Support Assistant")
 Base.metadata.create_all(bind=engine)
@@ -47,6 +46,8 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
 @app.post("/chat")
 def chat(
     req: ChatRequest,
@@ -90,7 +91,6 @@ User Question:
             # Normal Gemini chat
             reply = ask_llm(message)
 
-
         # Create conversation if not provided
         conversation_id = req.conversation_id
 
@@ -104,7 +104,6 @@ User Question:
 
             conversation_id = conversation.id
 
-
         # Save user message
         user_message = Message(
             conversation_id=conversation_id,
@@ -113,7 +112,6 @@ User Question:
         )
 
         db.add(user_message)
-
 
         # Save assistant reply
         assistant_message = Message(
@@ -126,12 +124,10 @@ User Question:
 
         db.commit()
 
-
         return {
             "reply": reply,
             "conversation_id": conversation_id
         }
-
 
     except Exception as e:
 
@@ -140,6 +136,8 @@ User Question:
         return {
             "error": str(e)
         }
+
+
 @app.get("/conversation/{conversation_id}")
 def get_conversation(conversation_id: UUID, db: Session = Depends(get_db)):
 
