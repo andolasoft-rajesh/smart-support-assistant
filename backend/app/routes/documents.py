@@ -13,11 +13,17 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import UploadResponse
+from app.schemas import DocumentInfo, UploadResponse
 from app.services.llm import LLMError
-from app.services.rag import chunk_text, store_chunks
+from app.services.rag import chunk_text, list_documents, store_chunks
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+@router.get("", response_model=list[DocumentInfo])
+def documents(db: Session = Depends(get_db)):
+    """List the uploaded documents so the UI can offer them to feature buttons."""
+    return list_documents(db)
 
 
 def extract_text(filename: str, raw: bytes) -> str:

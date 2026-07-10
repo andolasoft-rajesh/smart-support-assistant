@@ -22,3 +22,13 @@ class ChatResponse(BaseModel):
 class UploadResponse(BaseModel):
     filename: str
     chunks: int
+
+
+class DocumentInfo(BaseModel):
+    filename: str
+    chunks: int
+
+
+class SummaryResponse(BaseModel):
+    summary: str
+    key_points: list[str]

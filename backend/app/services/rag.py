@@ -7,7 +7,7 @@ chunk, keep them — but the chunks now land as rows in PostgreSQL (pgvector)
 instead of a JSON file. Each stage is a plain function; the upload route just
 chains them: extract text -> chunk_text -> store_chunks (embed + insert).
 """
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Chunk
@@ -81,3 +81,34 @@ def retrieve(db: Session, question: str, k: int = 4) -> list[str]:
         .limit(k)
     ).scalars().all()
     return list(rows)
+
+
+def list_documents(db: Session) -> list[dict]:
+    """
+    One row per uploaded document with its chunk count. The UI reads this to
+    populate the "which document?" picker for the Day 16 feature endpoints.
+    """
+    rows = db.execute(
+        select(Chunk.document, func.count(Chunk.id))
+        .group_by(Chunk.document)
+        .order_by(Chunk.document)
+    ).all()
+    return [{"filename": name, "chunks": count} for name, count in rows]
+
+
+def get_document_text(db: Session, document: str, max_chars: int = 8000) -> str:
+    """
+    Reassemble a document's text from its stored chunks, in insertion order.
+
+    The feature endpoints (summarize/FAQ/tasks) work on whole-document text,
+    not on retrieved chunks — there's no separate documents table, so we
+    stitch the chunks back together by filename and cap the length to keep the
+    prompt within budget. Chunks overlap by CHUNK_OVERLAP, so the seams repeat
+    a little text; harmless for a summary.
+    """
+    rows = db.execute(
+        select(Chunk.content)
+        .where(Chunk.document == document)
+        .order_by(Chunk.id)
+    ).scalars().all()
+    return "\n".join(rows)[:max_chars]

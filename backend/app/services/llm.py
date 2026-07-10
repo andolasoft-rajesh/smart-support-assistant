@@ -42,7 +42,9 @@ class LLMError(Exception):
     type and don't need to know *why* it failed — only that it did."""
 
 
-def generate_reply(history: list[dict], system: str = SYSTEM) -> str:
+def generate_reply(
+    history: list[dict], system: str = SYSTEM, max_tokens: int = MAX_TOKENS
+) -> str:
     """
     history: [{"role": "user"|"assistant", "content": "..."}, ...]
     in chronological order, already capped by the caller (see crud.load_history).
@@ -51,23 +53,30 @@ def generate_reply(history: list[dict], system: str = SYSTEM) -> str:
     `system` defaults to the plain SYSTEM prompt. The RAG chat flow passes an
     augmented version (SYSTEM + retrieved context + "answer only from context")
     so the same function serves both grounded and ungrounded replies.
+
+    `max_tokens` caps the output. It defaults to MAX_TOKENS (chat-sized), but
+    callers that need a longer, complete response — e.g. the summarize feature,
+    whose JSON must not be cut off mid-object — pass a larger budget. This
+    matters extra for a thinking model like gemini-2.5-flash: internal thinking
+    tokens also draw from this budget, so too small a cap yields truncated or
+    empty output.
     """
     try:
         model = genai.GenerativeModel(MODEL, system_instruction=system)
-        
+
         # Convert history format for Gemini (role must be "user" or "model")
         gemini_history = []
         for msg in history:
             role = "user" if msg["role"] == "user" else "model"
             gemini_history.append({"role": role, "parts": msg["content"]})
-        
+
         chat = model.start_chat(history=gemini_history[:-1] if gemini_history else [])
         response = chat.send_message(
             gemini_history[-1]["parts"] if gemini_history else "Hello",
-            generation_config=genai.types.GenerationConfig(max_output_tokens=MAX_TOKENS),
+            generation_config=genai.types.GenerationConfig(max_output_tokens=max_tokens),
             stream=False,
         )
-        
+
         return response.text
 
     except google_exceptions.DeadlineExceeded:

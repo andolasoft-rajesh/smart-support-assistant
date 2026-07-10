@@ -11,7 +11,9 @@ from sqlalchemy import text
 
 from app.database import Base, engine
 from app.routes.chat import router as chat_router
+from app.routes.debug import router as debug_router
 from app.routes.documents import router as documents_router
+from app.routes.features import router as features_router
 
 app = FastAPI(
     title="Smart Support Assistant",
@@ -42,6 +44,8 @@ def health():
 
 app.include_router(chat_router)
 app.include_router(documents_router)
+app.include_router(features_router)
+app.include_router(debug_router)
 
 if __name__ == "__main__":
     import uvicorn

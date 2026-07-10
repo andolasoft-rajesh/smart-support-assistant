@@ -1,17 +1,89 @@
 "use client";
 
-import { useState } from "react";
-import { Message, ChatResponse, UploadResponse } from "@/types";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Message,
+  ChatResponse,
+  UploadResponse,
+  DocumentInfo,
+  SummaryResponse,
+} from "@/types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
+import DocumentPanel from "./DocumentPanel";
 
-const API_BASE_URL = "http://localhost:8001";
+const API_BASE_URL = "http://localhost:8000";
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+
+  // Day 16 feature state: the uploaded documents and the latest summary.
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [summarizing, setSummarizing] = useState<string | null>(null);
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  const [summaryDoc, setSummaryDoc] = useState<string | null>(null);
+
+  const refreshDocuments = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/documents`);
+      if (!response.ok) return;
+      setDocuments((await response.json()) as DocumentInfo[]);
+    } catch (err) {
+      // Non-fatal: the panel just stays empty if the list can't load.
+      console.error("Failed to load documents:", err);
+    }
+  }, []);
+
+  // Populate the document list on first render so previously-ingested docs
+  // (e.g. the trainer's demo doc) show up without needing a fresh upload.
+  // The fetch runs in an async IIFE so setState happens after the await
+  // (never synchronously in the effect body), with a guard against setting
+  // state after unmount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/documents`);
+        if (cancelled || !response.ok) return;
+        const data = (await response.json()) as DocumentInfo[];
+        if (!cancelled) setDocuments(data);
+      } catch (err) {
+        console.error("Failed to load documents:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const summarize = async (filename: string) => {
+    try {
+      setError(null);
+      setSummarizing(filename);
+
+      const response = await fetch(
+        `${API_BASE_URL}/features/summarize?document=${encodeURIComponent(filename)}`,
+        { method: "POST" }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Summarize failed (status ${response.status})`);
+      }
+
+      setSummary((await response.json()) as SummaryResponse);
+      setSummaryDoc(filename);
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to summarize document";
+      setError(errorMessage);
+      console.error("Summarize error:", err);
+    } finally {
+      setSummarizing(null);
+    }
+  };
 
   const send = async (text: string) => {
     try {
@@ -88,6 +160,9 @@ export default function ChatWindow() {
           }. You can now ask questions about it.`,
         },
       ]);
+
+      // Reflect the new document in the panel so it can be summarized.
+      await refreshDocuments();
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to upload file";
@@ -114,6 +189,16 @@ export default function ChatWindow() {
           <p className="text-sm">{error}</p>
         </div>
       )}
+
+      {/* Documents + Summarize feature (Day 16) */}
+      <DocumentPanel
+        documents={documents}
+        onSummarize={summarize}
+        summarizing={summarizing}
+        summary={summary}
+        summaryDoc={summaryDoc}
+        onCloseSummary={() => setSummary(null)}
+      />
 
       {/* Message list */}
       <MessageList messages={messages} loading={loading} />
