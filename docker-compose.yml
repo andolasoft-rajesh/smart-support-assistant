@@ -1,13 +1,40 @@
-# docker-compose.yml (db service)
+# docker-compose.yml
+# The whole product in one file: `docker compose up --build` is the entire
+# installation manual. Three services, one default network, env vars from .env.
 services:
   db:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: assistant
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # The backend waits on this via depends_on: service_healthy, so it never
+    # starts talking to a database that isn't accepting connections yet.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d assistant"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      # Inside compose the DB is reachable at the SERVICE NAME `db`, not
+      # localhost — each container has its own network namespace.
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@db:5432/assistant
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    depends_on:
+      db: { condition: service_healthy }
+    ports: ["8000:8000"]
+
+  frontend:
+    build: ./frontend/support-assistant-frontend
+    # The browser (not this container) calls the backend, so it hits the
+    # host-mapped http://localhost:8000 — no service-name rewrite needed here.
+    depends_on: [backend]
+    ports: ["3000:3000"]
 
 volumes:
   pgdata:
