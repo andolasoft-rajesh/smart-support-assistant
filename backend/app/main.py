@@ -36,12 +36,52 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[UUID] = None
 
-
+app = FastAPI(
+    title="Smart Support Assistant",
+    description="API for AI-powered customer support",
+    version="1.0.0"
+)
 # ✅ RESPONSE MODEL
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: UUID
 
+# pgvector ships as a PostgreSQL extension. It must exist before create_all()
+# tries to build the Vector column on the chunks table.
+with engine.begin() as conn:
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    conn.execute(text(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'chunks'
+                  AND column_name = 'embedding'
+            ) THEN
+                ALTER TABLE public.chunks
+                ALTER COLUMN embedding TYPE vector(768)
+                USING embedding::vector;
+                ADD COLUMN uploaded_at timestamp WITHOUT time zone DEFAULT now();
+            END IF;
+        END$$;
+        """
+    ))
+
+    from app import models
+
+    Base.metadata.create_all(bind=engine)
+
+# Add CORS middleware to allow requests from frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 def health():

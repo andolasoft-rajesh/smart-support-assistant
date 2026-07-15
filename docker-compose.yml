@@ -1,13 +1,47 @@
-# docker-compose.yml (db service)
+version: "3.9"
+
 services:
   db:
     image: pgvector/pgvector:pg16
+    container_name: smart-support-db
+    restart: always
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ompriya1234
       POSTGRES_DB: assistant
-    ports: ["5432:5432"]
+    ports:
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    container_name: smart-support-backend
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend/support-assistant-frontend
+    container_name: smart-support-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/support-assistant-frontend:/app
+      - /app/node_modules
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    command: npm run dev
 
 volumes:
   pgdata:
