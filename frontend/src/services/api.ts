@@ -73,6 +73,7 @@ export async function uploadDocument(
 
 
 
+
 // Get uploaded documents API
 export async function getDocuments(){
 
@@ -92,4 +93,94 @@ export async function getDocuments(){
 
   return response.json();
 
+}
+
+
+
+
+
+// Get chat history list API
+export async function getConversations(){
+
+  const response = await fetch(
+    `${API_URL}/conversations`
+  );
+
+
+  if(!response.ok){
+
+    throw new Error(
+      "Failed to fetch conversations"
+    );
+
+  }
+
+
+  return response.json();
+
+}
+
+
+
+
+
+// Get single conversation messages API
+export async function getConversation(
+  conversationId: string
+){
+
+  const response = await fetch(
+    `${API_URL}/conversation/${conversationId}`
+  );
+
+
+  if(!response.ok){
+
+    throw new Error(
+      "Failed to fetch conversation"
+    );
+
+  }
+
+
+  return response.json();
+
+}
+// Get conversation by document
+export async function getConversationByDocument(
+  documentId: string
+) {
+
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/conversation`
+  );
+
+  if (!response.ok) {
+
+    throw new Error(
+      "Failed to fetch document conversation"
+    );
+
+  }
+
+  return response.json();
+
+}
+
+export async function summarizeDocument(
+  documentId: string
+) {
+
+  const response = await fetch(
+    `${API_URL}/features/summarize?document_id=${documentId}`,
+    {
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to summarize document");
+  }
+
+  return response.json();
 }

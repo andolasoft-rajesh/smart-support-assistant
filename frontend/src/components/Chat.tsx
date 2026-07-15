@@ -1,43 +1,145 @@
-import { useState, useRef } from "react";
-import { sendMessage, uploadDocument } from "../services/api";
+import { useState, useRef, useEffect } from "react";
+
+import {
+  sendMessage,
+  uploadDocument,
+  getConversation,
+  summarizeDocument
+} from "../services/api";
+
 import type { ChatMessage } from "../types/chat";
 
 
-export default function Chat() {
+interface ChatProps {
+  conversationId: string | null;
+  setConversationId: (id: string) => void;
+  onHistoryUpdate: () => void;
+}
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  const [input, setInput] = useState("");
+export default function Chat({
+  conversationId,
+  setConversationId,
+  onHistoryUpdate
+}: ChatProps) {
 
-  const [loading, setLoading] = useState(false);
 
-  const [conversationId, setConversationId] =
-    useState<string | null>(null);
+  const [messages, setMessages] =
+    useState<ChatMessage[]>([]);
+
+
+  const [input, setInput] =
+    useState("");
+
+
+  const [loading, setLoading] =
+    useState(false);
+
 
   const [uploadStatus, setUploadStatus] =
     useState("");
+
+
+  const [documentId, setDocumentId] =
+    useState<string | null>(null);
+
+  const [summarizing, setSummarizing] =
+  useState(false);
+
 
   const fileInputRef =
     useRef<HTMLInputElement | null>(null);
 
 
 
+  // Load previous conversation
+  useEffect(() => {
+
+
+    const loadConversation = async () => {
+
+
+      if (!conversationId) {
+
+        setMessages([]);
+
+        return;
+
+      }
+
+
+      try {
+
+
+        const data = await getConversation(
+          conversationId
+        );
+        if (data.document_id) {
+             setDocumentId(data.document_id);
+           }
+
+
+        setMessages(
+
+          data.messages.map((msg: ChatMessage) => ({
+
+            role: msg.role,
+
+            content: msg.content
+
+          }))
+
+        );
+        
+      } catch(error) {
+
+
+        console.log(
+          "Failed to load conversation",
+          error
+        );
+
+
+      }
+
+
+    };
+
+
+    loadConversation();
+
+
+  }, [conversationId]);
+
+
+
+
+
+  // Send message
   const handleSend = async () => {
 
+
     if (!input.trim() || loading)
+
       return;
+
 
 
     const userText = input;
 
 
+
     setMessages((prev) => [
+
       ...prev,
+
       {
         role: "user",
         content: userText
       }
+
     ]);
+
 
 
     setInput("");
@@ -48,19 +150,34 @@ export default function Chat() {
 
     try {
 
+
+      console.log(
+        "Sending document ID:",
+        documentId
+      );
+
+
+
       const response = await sendMessage({
 
         message: userText,
 
-        conversation_id: conversationId
+        conversation_id: conversationId,
+
+        document_id: documentId
 
       });
 
 
 
-      setConversationId(
-        response.conversation_id
-      );
+      // Store new conversation id
+      if (!conversationId) {
+
+        setConversationId(
+          response.conversation_id
+        );
+
+      }
 
 
 
@@ -77,24 +194,37 @@ export default function Chat() {
 
 
 
-    } catch {
+      onHistoryUpdate();
 
 
-      setMessages((prev)=>[
+
+    } catch(error) {
+
+
+      console.log(
+        "CHAT ERROR:",
+        error
+      );
+
+
+      setMessages((prev) => [
 
         ...prev,
 
         {
-          role:"assistant",
-          content:"Something went wrong."
+          role: "assistant",
+          content: "Something went wrong."
         }
 
       ]);
 
+
     }
 
 
+
     setLoading(false);
+
 
   };
 
@@ -103,7 +233,9 @@ export default function Chat() {
 
 
 
-  const handleUpload = async(
+
+  // Upload document
+  const handleUpload = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
 
@@ -111,7 +243,8 @@ export default function Chat() {
     const file = e.target.files?.[0];
 
 
-    if(!file)
+    if (!file)
+
       return;
 
 
@@ -119,27 +252,156 @@ export default function Chat() {
     try {
 
 
-      await uploadDocument(file);
+      const result = await uploadDocument(file);
 
 
-      setUploadStatus(
-        `✅ ${file.name} uploaded`
+
+      console.log(
+        "UPLOAD RESPONSE:",
+        result
       );
 
 
 
-    } catch {
+      const uploadedDocumentId =
+        result.document_id;
+
+
+
+      if (!uploadedDocumentId) {
+
+
+        throw new Error(
+          "Document ID missing from upload response"
+        );
+
+      }
+
+
+
+      setDocumentId(
+        uploadedDocumentId
+      );
+
+
+
+      console.log(
+        "STORED DOCUMENT ID:",
+        uploadedDocumentId
+      );
+
+
+
+      onHistoryUpdate();
+
 
 
       setUploadStatus(
-        "❌ Upload failed"
+        `✅ ${file.name} uploaded successfully.`
       );
+
+
+
+      setTimeout(() => {
+
+        setUploadStatus("");
+
+      }, 3000);
+
+
+
+    } catch(error) {
+
+
+      console.log(
+        "UPLOAD ERROR:",
+        error
+      );
+
+
+
+      setUploadStatus(
+        "❌ Upload failed."
+      );
+
+
+
+      setTimeout(() => {
+
+        setUploadStatus("");
+
+      }, 3000);
 
 
     }
 
 
   };
+const handleSummarize = async () => {
+
+  if (!documentId) {
+
+    setMessages((prev) => [
+
+      ...prev,
+
+      {
+        role: "assistant",
+        content: "Please upload a document first."
+      }
+
+    ]);
+
+    return;
+
+  }
+
+  try {
+
+    setSummarizing(true);
+
+    const result = await summarizeDocument(documentId);
+    console.log("SUMMARY RESPONSE:", result);
+
+    const text =
+      `📄 Summary\n\n${result.summary}\n\nKey Points:\n\n` +
+      result.key_points.map((p: string) => `• ${p}`).join("\n");
+
+    setMessages((prev) => [
+
+      ...prev,
+
+      {
+        role: "assistant",
+        content: text
+      }
+
+    ]);
+
+  }
+
+  catch {
+
+    setMessages((prev) => [
+
+      ...prev,
+
+      {
+        role: "assistant",
+        content: "Failed to summarize the document."
+      }
+
+    ]);
+
+  }
+
+  finally {
+
+    setSummarizing(false);
+
+  }
+
+};
 
 
 
@@ -156,10 +418,6 @@ export default function Chat() {
         <h1>
           🤖 Smart Support Assistant
         </h1>
-
-        <p>
-          Ask questions from your documents
-        </p>
 
       </div>
 
@@ -180,18 +438,21 @@ export default function Chat() {
               </h2>
 
               <p>
-                Upload a document and ask questions about it.
+                Ready when you are.
               </p>
 
             </div>
 
           )
+
         }
 
 
 
+
+
         {
-          messages.map((msg,index)=>(
+          messages.map((msg, index) => (
 
             <div
 
@@ -211,11 +472,28 @@ export default function Chat() {
 
             </div>
 
+
           ))
+
         }
 
 
+
+
+
+        {
+  (loading || summarizing) && (
+    <div className="message assistant-message">
+      {summarizing ? "📝 Summarizing document..." : "🤖 Thinking..."}
+    </div>
+  )
+}
+
+
+
       </div>
+
+
 
 
 
@@ -231,14 +509,38 @@ export default function Chat() {
           </div>
 
         )
+
       }
+      <div
+  style={{
+    display: "flex",
+    justifyContent: "center",
+    marginBottom: "14px"
+  }}
+>
 
+  <button
+    className="summarize-btn"
+    onClick={handleSummarize}
+    disabled={summarizing}
+  >
 
+    {
 
+      summarizing
 
+        ? "Summarizing..."
 
+        : "📝 Summarize Document"
+
+    }
+
+  </button>
+
+</div>
 
       <div className="input-area">
+
 
 
         <input
@@ -249,7 +551,7 @@ export default function Chat() {
 
           ref={fileInputRef}
 
-          accept=".pdf,.txt"
+          accept="*/*"
 
           onChange={handleUpload}
 
@@ -257,19 +559,20 @@ export default function Chat() {
 
 
 
+
+
         <button
 
           className="upload-btn"
 
-          onClick={() =>
-            fileInputRef.current?.click()
-          }
+          onClick={() => fileInputRef.current?.click()}
 
         >
 
           📎
 
         </button>
+
 
 
 
@@ -283,19 +586,22 @@ export default function Chat() {
 
           value={input}
 
-          onChange={(e)=>
+
+          onChange={(e) =>
             setInput(e.target.value)
           }
 
 
-          onKeyDown={(e)=>{
+          onKeyDown={(e) => {
 
-            if(e.key==="Enter")
+            if (e.key === "Enter")
+
               handleSend();
 
           }}
 
         />
+
 
 
 
@@ -321,6 +627,7 @@ export default function Chat() {
 
 
         </button>
+
 
 
 

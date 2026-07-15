@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { getDocuments } from "../services/api";
-
 
 interface Document {
   id: string;
@@ -9,50 +8,46 @@ interface Document {
   chunk_count: number;
 }
 
-
 export default function DocumentList() {
 
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [documents, setDocuments] =
+    useState<Document[]>([]);
 
+  const loadDocuments = useCallback(async () => {
 
-  useEffect(() => {
+    try {
 
-    const loadDocuments = async () => {
+      const data = await getDocuments();
 
-      try {
+      setDocuments(data);
 
-        const data = await getDocuments();
+    } catch (error) {
 
-        setDocuments(data);
+      console.log(
+        "Error loading documents",
+        error
+      );
 
-      } catch (error) {
-
-        console.log(
-          "Error loading documents",
-          error
-        );
-
-      }
-
-    };
-
-
-    loadDocuments();
+    }
 
   }, []);
 
+  useEffect(() => {
 
+    loadDocuments();
+
+  }, [loadDocuments]);
 
   return (
 
     <div className="card">
 
       <h2>
-        📄 Uploaded Documents
+        History
       </h2>
 
-
       {
+
         documents.length === 0 ? (
 
           <p>
@@ -70,20 +65,13 @@ export default function DocumentList() {
 
               📄 {doc.filename}
 
-              <br />
-
-              <small>
-                Chunks: {doc.chunk_count}
-              </small>
-
-
             </div>
 
           ))
 
         )
-      }
 
+      }
 
     </div>
 

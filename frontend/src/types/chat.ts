@@ -1,6 +1,7 @@
 export interface ChatRequest {
   message: string;
   conversation_id?: string | null;
+  document_id?: string | null;
 }
 
 export interface ChatResponse {
