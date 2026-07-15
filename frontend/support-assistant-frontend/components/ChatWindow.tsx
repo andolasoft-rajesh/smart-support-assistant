@@ -5,13 +5,14 @@ import { Message, ChatResponse, UploadResponse } from "@/types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 
-const API_BASE_URL = "http://localhost:8001";
+const API_BASE_URL = "http://localhost:8000";
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const [uploadedDocument, setUploadedDocument] = useState("");
 
   const send = async (text: string) => {
     try {
@@ -59,49 +60,89 @@ export default function ChatWindow() {
   };
 
   const upload = async (file: File) => {
+  try {
+    setError(null);
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed (status ${response.status})`);
+    }
+
+    const data: UploadResponse = await response.json();
+
+    setUploadedDocument(data.filename);
+
+    setMessages((m) => [
+  ...m,
+  {
+    role: "user",
+    content: `📎 Uploaded: ${data.filename}`,
+  },
+  {
+    role: "assistant",
+    content: `Document uploaded successfully and indexed into ${data.chunks} chunks. You can now ask questions or click "Summarize".`,
+  },
+]);
+  } catch (err) {
+    const errorMessage =
+      err instanceof Error ? err.message : "Failed to upload file";
+    setError(errorMessage);
+    console.error("Upload error:", err);
+  } finally {
+    setLoading(false);
+  }
+};
+  
+  const summarizeDocument = async () => {
     try {
       setError(null);
       setLoading(true);
 
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+      const response = await fetch(`${API_BASE_URL}/features/summary`, {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document: uploadedDocument }),
       });
 
       if (!response.ok) {
-        throw new Error(`Upload failed (status ${response.status})`);
+        throw new Error("Failed to summarize document");
       }
 
-      const data: UploadResponse = await response.json();
+      const data = await response.json();
 
-      // Show the ingest result inline so the user knows the doc is now
-      // searchable and how many chunks it produced.
       setMessages((m) => [
         ...m,
         {
           role: "assistant",
-          content: `📎 Uploaded "${data.filename}" — indexed ${data.chunks} chunk${
-            data.chunks === 1 ? "" : "s"
-          }. You can now ask questions about it.`,
+          content:
+          `📄 Summary
+
+            ${data.summary}
+
+            🔹 Key Points
+
+              • ${data.key_points.join("\n• ")}`,
         },
       ]);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to upload file";
-      setError(errorMessage);
-      console.error("Upload error:", err);
+      setError(err instanceof Error ? err.message : "Summary failed");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-white">
+    <div className="flex flex-col h-screen bg-slate-950 text-white">
       {/* Header */}
-      <div className="bg-blue-600 text-white p-4 shadow-md">
+      <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 shadow-xl p-4">
         <h1 className="text-xl font-semibold">Smart Support Assistant</h1>
         {conversationId && (
           <p className="text-sm text-blue-100">ID: {conversationId}</p>
@@ -119,7 +160,12 @@ export default function ChatWindow() {
       <MessageList messages={messages} loading={loading} />
 
       {/* Input */}
-      <MessageInput onSend={send} onUpload={upload} disabled={loading} />
+      <MessageInput
+      onSend={send}
+      onUpload={upload}
+      onSummary={summarizeDocument}
+      disabled={loading}
+      />
     </div>
   );
 }

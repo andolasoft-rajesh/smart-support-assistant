@@ -1,15 +1,8 @@
-"""
-routes/documents.py
-Receive an uploaded file, extract its text, and hand it to the pipeline.
-
-The route only orchestrates: read bytes -> extract text -> chunk -> store.
-Text extraction is format-specific (pdf vs plain text); everything after that
-is format-agnostic and lives in services/rag.py.
-"""
 import io
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pypdf import PdfReader
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -32,18 +25,24 @@ def extract_text(filename: str, raw: bytes) -> str:
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload(file: UploadFile, db: Session = Depends(get_db)):
+    print("Uploading:", file.filename)
+
     raw = await file.read()
+    print("File size:", len(raw))
+
     text = extract_text(file.filename, raw)
+    print("Text length:", len(text))
 
     chunks = chunk_text(text)
-    if not chunks:
-        raise HTTPException(status_code=400, detail="No extractable text in file")
+    print("Chunks:", len(chunks))
 
-    try:
-        count = store_chunks(db, file.filename, chunks)
-    except LLMError:
-        db.rollback()
-        raise HTTPException(status_code=502, detail="Embedding failed, please retry")
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No extractable text")
+
+    count = store_chunks(db, file.filename, chunks)
+    print("Stored:", count)
 
     db.commit()
+    print("Commit successful")
+
     return UploadResponse(filename=file.filename, chunks=count)

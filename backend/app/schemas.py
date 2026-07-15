@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -22,3 +22,15 @@ class ChatResponse(BaseModel):
 class UploadResponse(BaseModel):
     filename: str
     chunks: int
+
+class DocumentInfo(BaseModel):
+    filename: str
+    chunks: int
+
+class SummaryRequest(BaseModel):
+    document: str
+
+
+class SummaryResponse(BaseModel):
+    summary: str
+    key_points: List[str]

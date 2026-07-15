@@ -26,6 +26,14 @@ class Message(Base):
 
     conversation = relationship("Conversation", back_populates="messages")
 
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    filename = Column(String, nullable=False, unique=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    chunks = relationship("Chunk", back_populates="document")
 
 class Chunk(Base):
     """One slice of an uploaded document, with its embedding.
@@ -34,10 +42,13 @@ class Chunk(Base):
     chunk/embed logic, but the rows live in PostgreSQL (via pgvector)
     instead of a JSON file, so we can do vector similarity search in SQL.
     """
-    __tablename__ = "chunks"
+    __tablename__ = "document_chunks"
 
-    id = Column(Integer, primary_key=True)
-    document = Column(String, nullable=False)          # source filename
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)             # the chunk text
     embedding = Column(Vector(EMBEDDING_DIM))          # match the embedding model's dimension
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    document = relationship("Document", back_populates="chunks")

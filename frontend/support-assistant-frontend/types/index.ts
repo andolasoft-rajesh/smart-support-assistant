@@ -21,3 +21,8 @@ export interface UploadResponse {
   filename: string;
   chunks: number;
 }
+
+export interface SummaryResponse {
+  summary: string;
+  key_points: string[];
+}
