@@ -1,53 +1,133 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ChangeEvent, type MouseEvent } from "react";
 import "./App.css";
 import api from "./services/api";
 import type { Message } from "./types/message";
 import type { ConversationSummary } from "./types/chat";
 
+interface DocumentInfo {
+  document: string;
+  chunk_count: number;
+}
+
 function App() {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
 
-  const loadConversations = async () => {
+  // --- NEW: Summarizer State ---
+  const [summarizingDoc, setSummarizingDoc] = useState<string | null>(null);
+  const [activeSummary, setActiveSummary] = useState<{
+    document: string;
+    summary: string;
+    key_points: string[];
+  } | null>(null);
+
+  const fetchData = async () => {
     try {
-      const response = await api.get("/conversations");
-      setConversations(response.data.conversations);
-    } catch {
-      // Silently ignore — sidebar just stays empty/stale if this fails
+      const [convRes, docRes] = await Promise.all([
+        api.get("/conversations"),
+        api.get("/documents")
+      ]);
+      setConversations(convRes.data.conversations);
+      setDocuments(docRes.data.documents);
+    } catch (error) {
+      console.error("Failed to load initial data", error);
     }
   };
 
   useEffect(() => {
-  const fetchConversations = async () => {
+    const load = async () => {
+      await fetchData();
+    };
+
+    void load();
+  }, []);
+
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    setUploading(true);
+    const formData = new FormData();
+    for (let i = 0; i < e.target.files.length; i++) {
+      formData.append("files", e.target.files[i]);
+    }
+
     try {
-      const response = await api.get("/conversations");
-      setConversations(response.data.conversations);
-    } catch {
-      // Silently ignore — sidebar just stays empty/stale if this fails
+      await api.post("/documents/upload_multiple", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      void fetchData(); // Refresh document list
+    } catch (_err) {
+      const error = _err instanceof Error ? _err : new Error("Upload failed");
+      console.error(error);
+      alert("Error uploading files.");
+    } finally {
+      setUploading(false);
+      if (e.target) e.target.value = '';
     }
   };
 
-  fetchConversations();
-}, []);
+  // --- NEW: Summarize Function ---
+  const handleSummarize = async (documentName: string) => {
+    // If it's already open, close it!
+    if (activeSummary?.document === documentName) {
+      setActiveSummary(null);
+      return;
+    }
+
+    setSummarizingDoc(documentName);
+    try {
+      // Calls the new /features/summarize endpoint
+      const response = await api.post(`/features/summarize?document=${encodeURIComponent(documentName)}`);
+      setActiveSummary({
+        document: documentName,
+        summary: response.data.summary,
+        key_points: response.data.key_points,
+      });
+    } catch (err: unknown) {
+      const error = err as { response?: { status?: number } };
+      const status = error.response?.status;
+      if (status === 502) {
+        alert("Summarization failed (502): The AI returned malformed data.");
+      } else {
+        alert("Failed to summarize the document.");
+      }
+    } finally {
+      setSummarizingDoc(null);
+    }
+  };
+
+  // --- NEW: Delete Document Handler ---
+  const handleDeleteDocument = async (documentName: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${documentName}"? The AI will forget its contents.`)) return;
+
+    try {
+      await api.delete(`/documents/${documentName}`);
+      fetchData(); // Refresh the sidebar list!
+    } catch (error) {
+      alert("Failed to delete document.");
+      console.error(error);
+    }
+  };
 
   const handleSelectConversation = async (id: string) => {
-    setConversationId(id);
     setLoading(true);
     try {
       const response = await api.get(`/chat/${id}/history`);
-      const loadedMessages: Message[] = response.data.messages.map(
-        (m: { role: string; content: string }, index: number) => ({
-          id: Date.now() + index,
-          text: m.content,
-          sender: m.role === "user" ? "user" : "assistant",
-        })
-      );
+      const loadedMessages = response.data.messages.map((msg: { role: string; content: string }, idx: number) => ({
+        id: idx,
+        text: msg.content,
+        sender: msg.role === "assistant" ? "assistant" : "user",
+      }));
+      setConversationId(id);
       setMessages(loadedMessages);
-    } catch {
-      setMessages([]);
+    } catch (_err) {
+      const error = _err instanceof Error ? _err : new Error("Failed to load history");
+      console.error(error);
+      alert("Unable to load conversation history.");
     } finally {
       setLoading(false);
     }
@@ -56,46 +136,50 @@ function App() {
   const handleNewConversation = () => {
     setConversationId(undefined);
     setMessages([]);
+    setMessage("");
   };
 
   const handleSend = async () => {
-    if (!message.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now(),
-      text: message,
-      sender: "user",
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-
-    const currentMessage = message;
-    setMessage("");
+    const trimmed = message.trim();
+    if (!trimmed) return;
 
     setLoading(true);
-
     try {
       const response = await api.post("/chat", {
-        message: currentMessage,
         conversation_id: conversationId,
+        message: trimmed,
       });
 
-      const assistantMessage: Message = {
-        id: Date.now() + 1,
-        text: response.data.reply,
-        sender: "assistant",
-        sources: response.data.sources,
-      };
+      const reply = response.data.reply as string;
+      const createdId = response.data.conversation_id as string;
 
-      setMessages((prev) => [...prev, assistantMessage]);
-      setConversationId(response.data.conversation_id);
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now(), text: trimmed, sender: "user" },
+        { id: Date.now() + 1, text: reply, sender: "assistant" },
+      ]);
+      setMessage("");
+      setConversationId(createdId);
+      void fetchData();
+    } catch (err) {
+      const axiosError = err as { response?: { status?: number }; message?: string };
+      const status = axiosError.response?.status;
+      const statusSuffix = status ? ` (HTTP ${status})` : "";
 
-      // Refresh sidebar so a brand-new conversation shows up immediately
-      loadConversations();
-    } catch {
+      let errorText: string;
+      if (status === 503) {
+        errorText = `AI Service is unavailable. Check API Key.${statusSuffix}`;
+      } else if (status === 500) {
+        errorText = `Backend database error occurred. Please try again.${statusSuffix}`;
+      } else if (axiosError.message) {
+        errorText = `Unable to reach the backend server. ${axiosError.message}${statusSuffix}`;
+      } else {
+        errorText = `Unable to reach the backend server. Please make sure Uvicorn is running!${statusSuffix}`;
+      }
+
       const errorMessage: Message = {
         id: Date.now() + 1,
-        text: "Unable to reach the backend.",
+        text: errorText,
         sender: "assistant",
       };
 
@@ -105,23 +189,25 @@ function App() {
     }
   };
 
-  const handleDeleteConversation = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation(); // Prevents the conversation from being selected when you click delete
-    
-    if (!window.confirm("Are you sure you want to delete this conversation?")) return;
+  const handleDeleteConversation = async (e: MouseEvent<HTMLButtonElement>, id: string) => {
+    e.stopPropagation();
+
+    if (!window.confirm("Delete this conversation?")) {
+      return;
+    }
 
     try {
       await api.delete(`/chat/${id}`);
-      
-      // If the user deleted the chat they are currently viewing, clear the screen
-      if (id === conversationId) {
-        handleNewConversation();
+      setConversations((current) => current.filter((conv) => conv.conversation_id !== id));
+
+      if (conversationId === id) {
+        setConversationId(undefined);
+        setMessages([]);
       }
-      
-      // Refresh the sidebar
-      loadConversations();
-    } catch (error) {
-      console.error("Failed to delete conversation", error);
+    } catch (_err) {
+      const error = _err instanceof Error ? _err : new Error("Delete failed");
+      console.error(error);
+      alert("Unable to delete conversation.");
     }
   };
 
@@ -130,83 +216,128 @@ function App() {
       <div className="sidebar">
         <div className="sidebar-header">
           <span>Conversations</span>
-          <button className="new-chat-btn" onClick={handleNewConversation}>
-            + New
-          </button>
+          <button className="new-chat-btn" onClick={handleNewConversation}>+ New</button>
         </div>
+
+        <div className="upload-section">
+          <label className="upload-btn">
+            {uploading ? "Uploading..." : "📄 Upload Documents"}
+            <input type="file" multiple accept=".pdf,.txt" onChange={handleFileUpload} disabled={uploading} style={{ display: 'none' }} />
+          </label>
+        </div>
+
+        {/* --- NEW: Document List with Summarize --- */}
+        <div className="documents-list">
+          {documents.map((doc) => (
+            <div key={doc.document} className="document-item-wrapper">
+              
+              {/* The Document Row */}
+              <div className="document-row">
+                <span className="document-title">{doc.document}</span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button 
+                    className="summarize-btn"
+                    onClick={() => handleSummarize(doc.document)}
+                    disabled={summarizingDoc === doc.document}
+                  >
+                    {summarizingDoc === doc.document ? "..." : "Summarize"}
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteDocument(doc.document)}
+                    className="doc-delete-btn"
+                    title="Delete Document"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
         <div className="conversation-list">
-          {conversations.length === 0 ? (
-            <p className="no-conversations">No past conversations</p>
-          ) : (
+          {conversations.length === 0 ? <p className="no-conversations">No past conversations</p> : 
             conversations.map((conv) => (
               <div
                 key={conv.conversation_id}
-                className={
-                  conv.conversation_id === conversationId
-                    ? "conversation-item active"
-                    : "conversation-item"
-                }
+                className={`conversation-item ${conv.conversation_id === conversationId ? "active" : ""}`}
                 onClick={() => handleSelectConversation(conv.conversation_id)}
               >
                 <span className="conversation-preview">{conv.preview}</span>
-                <button 
-                  className="delete-btn" 
+                <button
+                  className="delete-btn"
                   onClick={(e) => handleDeleteConversation(e, conv.conversation_id)}
-                  title="Delete conversation"
+                  aria-label="Delete conversation"
                 >
                   ×
                 </button>
               </div>
             ))
-          )}
+          }
         </div>
       </div>
 
-      <div className="chat-container">
+      <div className="chat-container" style={{ position: 'relative' }}>
         <div className="header">
           <h1>SMART-SUPPORT-ASSISTANT</h1>
         </div>
 
-        <div className="messages">
-          {messages.length === 0 ? (
-            <p>No messages yet.</p>
-          ) : (
-            messages.map((msg) => (
-              <div key={msg.id} className={`message ${msg.sender}`}>
-                {msg.text}
-                {msg.sources && msg.sources.length > 0 && (
-                  <div className="sources">
-                    <small>Sources: {msg.sources.join(", ")}</small>
-                  </div>
-                )}
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <div className="messages" style={{ flex: 1, minWidth: 0 }}>
+            {loading && messages.length === 0 ? (
+              <p>Loading conversation…</p>
+            ) : messages.length === 0 ? (
+              <p>No messages yet.</p>
+            ) : (
+              messages.map((msg) => (
+                <div key={msg.id} className={`message ${msg.sender}`}>
+                  {msg.text}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* --- NEW: Scrollable Side Panel for Summary --- */}
+          {activeSummary && (
+            <div className="summary-panel">
+              <div className="summary-panel-header">
+                <h2>Summary — {activeSummary.document}</h2>
+                <button className="close-summary-btn" onClick={() => setActiveSummary(null)}>×</button>
               </div>
-            ))
+              <div className="summary-panel-body">
+                <p>{activeSummary.summary}</p>
+                <ul>
+                  {activeSummary.key_points.map((point, index) => (
+                    <li key={index}>{point}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
           )}
         </div>
+        
 
         <div className="input-area">
           <input
             type="text"
-            placeholder="Type your message..."
+            placeholder="Ask your assistant something..."
             value={message}
-            disabled={loading}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
+                e.preventDefault();
                 handleSend();
               }
             }}
+            disabled={loading}
           />
-
-          <button onClick={handleSend} disabled={loading}>
-            {loading ? "Sending..." : "Send"}
+          <button onClick={handleSend} disabled={loading || message.trim() === ""}>
+            {loading ? "Sending…" : "Send"}
           </button>
         </div>
       </div>
     </div>
   );
-
-
 }
 
 export default App;

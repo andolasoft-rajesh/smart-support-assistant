@@ -46,3 +46,8 @@ class DocumentInfo(BaseModel):
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentInfo]    
+
+
+class SummaryResponse(BaseModel):
+    summary: str
+    key_points: list[str]    

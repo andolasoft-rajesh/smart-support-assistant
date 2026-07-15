@@ -62,3 +62,15 @@ def retrieve_relevant_chunks(db: Session, query: str, top_k: int = 3) -> list[st
     )
     
     return [chunk.content for chunk in results]
+
+# Add to the bottom of backend/app/services/rag.py
+
+def get_document_text(db: Session, document_name: str) -> str:
+    """Fetches all chunks for a document and stitches them back into full text."""
+    chunks = db.query(Chunk).filter(Chunk.document == document_name).order_by(Chunk.id).all()
+    if not chunks:
+        return ""
+    
+    # Combine all chunk content into one massive string
+    full_text = "\n".join([chunk.content for chunk in chunks])
+    return full_text
