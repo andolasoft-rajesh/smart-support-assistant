@@ -98,3 +98,9 @@ The complete day-by-day progress, tasks, implementations, and key learnings from
 A detailed overview of the Smart Support Assistant architecture, including the system workflow, RAG pipeline, backend, frontend, database design, and API interactions, is available here:
 
 ➡️ [View System Architecture](ARCHITECTURE.md)
+
+## 🎥 Demo Video
+
+Watch the project demonstration here:
+
+https://drive.google.com/file/d/1O9gWIRUZxgm-7nTbqvTZ4uiF2YuP4UF6/view?usp=sharing
