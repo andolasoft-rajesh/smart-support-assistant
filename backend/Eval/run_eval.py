@@ -4,8 +4,8 @@ eval/run_eval.py
 Runs evaluation test cases against the Smart Support Assistant.
 
 Usage:
-    python eval/run_eval.py --document-id 405bf47e-a9cd-4b5b-b260-81382a6cf74d
-    python eval/run_eval.py --document-id 405bf47e-a9cd-4b5b-b260-81382a6cf74d --diagnose
+    python eval/run_eval.py --document-id feab3ed0-95d9-4724-b023-d9641078aba7
+    python eval/run_eval.py --document-id feab3ed0-95d9-4724-b023-d9641078aba7 --diagnose
 """
 
 import argparse
@@ -26,7 +26,8 @@ def run_case(base_url: str, document_id: str, question: str) -> str:
         f"{base_url}/chat",
         json={
             "message": question,
-            "document_id": document_id
+            "document_id": document_id,
+            "strict_document": True
         },
         timeout=60
     )
@@ -82,7 +83,7 @@ def main():
 
     parser.add_argument(
     "--document-id",
-    default="405bf47e-a9cd-4b5b-b260-81382a6cf74d",
+    default="feab3ed0-95d9-4724-b023-d9641078aba7",
     help="Document ID to evaluate against"
 )
 

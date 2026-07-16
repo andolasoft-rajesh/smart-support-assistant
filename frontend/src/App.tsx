@@ -3,21 +3,18 @@ import "./App.css";
 
 import Chat from "./components/Chat";
 import ChatHistory from "./components/ChatHistory";
-import DocumentList from "./components/DocumentList";
-
 
 function App() {
-
 
   const [selectedConversation, setSelectedConversation] =
     useState<string | null>(null);
 
-
-
   const [historyRefresh, setHistoryRefresh] =
     useState(0);
 
-
+  // Trigger to reset Chat component when starting a new chat
+  const [newChatTrigger, setNewChatTrigger] =
+    useState(0);
 
   const refreshHistory = () => {
 
@@ -27,39 +24,33 @@ function App() {
 
   };
 
-
   const startNewChat = () => {
 
     setSelectedConversation(null);
 
+    setNewChatTrigger(
+      (prev) => prev + 1
+    );
+
   };
-
-
 
   return (
 
     <div className="app-layout">
 
-
       <aside className="sidebar">
 
-
         <div className="brand">
-
 
           <h2>
             Smart Support
           </h2>
 
-
           <p>
             Your AI-powered knowledge assistant
           </p>
 
-
         </div>
-
-
 
         <button
           className="new-chat-btn"
@@ -68,53 +59,28 @@ function App() {
           + New Chat
         </button>
 
-
-
         <ChatHistory
-
-          onSelectConversation={
-            setSelectedConversation
-          }
-
-          refresh={
-            historyRefresh
-          }
-
+          onSelectConversation={setSelectedConversation}
+          refresh={historyRefresh}
         />
-
-
-        <DocumentList />
-
 
       </aside>
 
-
-
-
-
       <main className="chat-area">
 
-
         <Chat
-
           conversationId={selectedConversation}
-
           setConversationId={setSelectedConversation}
-
           onHistoryUpdate={refreshHistory}
-
+          
         />
 
-
       </main>
-
-
 
     </div>
 
   );
 
 }
-
 
 export default App;

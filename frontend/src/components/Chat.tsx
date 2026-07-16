@@ -12,17 +12,16 @@ import type { ChatMessage } from "../types/chat";
 
 interface ChatProps {
   conversationId: string | null;
-  setConversationId: (id: string) => void;
+  setConversationId: (id: string | null) => void;
   onHistoryUpdate: () => void;
+  
 }
-
 
 export default function Chat({
   conversationId,
   setConversationId,
   onHistoryUpdate
 }: ChatProps) {
-
 
   const [messages, setMessages] =
     useState<ChatMessage[]>([]);
@@ -41,14 +40,13 @@ export default function Chat({
 
 
   const [documentId, setDocumentId] =
-    useState<string | null>(null);
+  useState<string | null>(null);
 
   const [summarizing, setSummarizing] =
   useState(false);
 
-
-  const fileInputRef =
-    useRef<HTMLInputElement | null>(null);
+   const fileInputRef =
+  useRef<HTMLInputElement | null>(null);
 
 
 
@@ -58,14 +56,13 @@ export default function Chat({
 
     const loadConversation = async () => {
 
+if (!conversationId) {
 
-      if (!conversationId) {
+    setMessages([]);
+    setDocumentId(null);
+    return;
 
-        setMessages([]);
-
-        return;
-
-      }
+}
 
 
       try {
@@ -74,9 +71,7 @@ export default function Chat({
         const data = await getConversation(
           conversationId
         );
-        if (data.document_id) {
-             setDocumentId(data.document_id);
-           }
+       setDocumentId(data.document_id ?? null);
 
 
         setMessages(
@@ -151,10 +146,11 @@ export default function Chat({
     try {
 
 
-      console.log(
-        "Sending document ID:",
-        documentId
-      );
+      console.log("===== REQUEST =====");
+      console.log("conversationId =", conversationId);
+      console.log("documentId =", documentId);
+      console.log("message =", userText);
+      console.log("==================");
 
 
 
@@ -279,9 +275,8 @@ export default function Chat({
 
 
 
-      setDocumentId(
-        uploadedDocumentId
-      );
+     setDocumentId(result.document_id);
+
 
 
 

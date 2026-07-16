@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { getConversations, getDocuments } from "../services/api";
+import {
+  getConversations,
+  getDocuments,
+  getConversationByDocument
+} from "../services/api";
 
 
 interface Conversation {
@@ -16,12 +20,20 @@ interface Document {
 
 
 interface Props {
+
   onSelectConversation: (id: string) => void;
+
+  refresh: number;
+
 }
 
 
+
 export default function ChatHistory({
-  onSelectConversation
+
+  onSelectConversation,
+  refresh
+
 }: Props) {
 
 
@@ -36,13 +48,17 @@ export default function ChatHistory({
 
   useEffect(() => {
 
+
     const loadHistory = async () => {
 
+
       try {
+
 
         const chats = await getConversations();
 
         setConversations(chats);
+
 
 
         const docs = await getDocuments();
@@ -50,21 +66,29 @@ export default function ChatHistory({
         setDocuments(docs);
 
 
+
       } catch(error) {
+
 
         console.log(
           "History loading error",
           error
         );
 
+
       }
+
 
     };
 
 
+
     loadHistory();
 
-  }, []);
+
+  }, [refresh]);
+
+
 
 
 
@@ -79,40 +103,82 @@ export default function ChatHistory({
 
 
 
+
       {
-        conversations.map((chat) => (
+        conversations.map((chat)=>(
+
 
           <div
+
             key={chat.id}
+
             className="document-item"
+
             onClick={() =>
               onSelectConversation(chat.id)
             }
+
           >
 
             💬 {chat.title}
 
+
           </div>
 
+
         ))
+
       }
+
+
+
 
 
 
       {
-        documents.map((doc) => (
+  documents.map((doc)=>(
 
-          <div
-            key={doc.id}
-            className="document-item"
-          >
+    <div
 
-            📄 {doc.filename}
+      key={doc.id}
 
-          </div>
+      className="document-item"
 
-        ))
-      }
+      onClick={async()=>{
+
+        try{
+
+          const data =
+            await getConversationByDocument(
+              doc.id
+            );
+
+
+          onSelectConversation(
+            data.conversation_id
+          );
+
+
+        }catch(error){
+
+          console.log(
+            "No chat found for document",
+            error
+          );
+
+        }
+
+      }}
+
+    >
+
+      📄 {doc.filename}
+
+    </div>
+
+  ))
+}
+
 
 
 
@@ -120,11 +186,15 @@ export default function ChatHistory({
         conversations.length === 0 &&
         documents.length === 0 &&
         (
+
           <p>
             No history yet
           </p>
+
         )
+
       }
+
 
 
     </div>

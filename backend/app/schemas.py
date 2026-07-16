@@ -1,6 +1,5 @@
 from typing import Optional
 from uuid import UUID
-
 from pydantic import BaseModel
 
 
@@ -8,7 +7,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[UUID] = None
     document_id: Optional[UUID] = None
-
+    strict_document: bool = False
 
 class ResponseMessage(BaseModel):
     role: str

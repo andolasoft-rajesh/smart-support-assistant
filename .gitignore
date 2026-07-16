@@ -2,3 +2,5 @@ backend/venv
 backend/__pycache__
 backend/app/__pycache__
 .env
+__pycache__/
+*.pyc

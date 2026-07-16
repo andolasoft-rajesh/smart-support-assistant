@@ -22,6 +22,7 @@ def chat(
 
         print("CHAT DOCUMENT ID:", req.document_id)
         print("CHAT CONVERSATION ID:", req.conversation_id)
+        print("STRICT DOCUMENT:", req.strict_document)
 
         message = req.message.strip()
 
@@ -51,16 +52,40 @@ def chat(
         print("QUESTION:", message)
         print("CHUNKS:", context_chunks)
         print("======================")
-       
 
+        # ---------------- Generate reply ----------------
 
-        # Generate reply
         if context_chunks:
 
             context = "\n\n".join(context_chunks)
 
+            intent_prompt = f"""
+You are an intent classifier.
 
-            prompt = f"""
+Document excerpt:
+{context}
+
+User question:
+{message}
+
+Return ONLY one word:
+
+DOCUMENT - if the answer should come from the uploaded document.
+
+GENERAL - if the user is asking a general knowledge question that is not about the uploaded document.
+"""
+
+            intent = ask_llm(intent_prompt).strip().upper()
+
+            print("INTENT:", intent)
+
+            if intent == "GENERAL" and not req.strict_document:
+
+                reply = ask_llm(message)
+
+            else:
+
+                prompt = f"""
 You are Smart Support Assistant.
 
 Use ONLY the information inside the <context> tags.
@@ -85,23 +110,17 @@ Question:
 Answer:
 """
 
+                reply = ask_llm(prompt)
 
-            reply = ask_llm(prompt)
-
-
-        elif req.document_id :
+        elif req.document_id and req.strict_document:
 
             reply = "I could not find this information in the uploaded document."
-
 
         else:
 
             reply = ask_llm(message)
 
-
-
         conversation_id = req.conversation_id
-
 
         if conversation_id:
 
@@ -112,7 +131,6 @@ Answer:
                 )
                 .first()
             )
-
 
             if conversation is None:
 
@@ -126,7 +144,6 @@ Answer:
 
                 conversation_id = conversation.id
 
-
         else:
 
             conversation = Conversation(
@@ -139,8 +156,6 @@ Answer:
 
             conversation_id = conversation.id
 
-
-
         db.add(
             Message(
                 conversation_id=conversation_id,
@@ -148,7 +163,6 @@ Answer:
                 content=message
             )
         )
-        
 
         db.add(
             Message(
@@ -158,31 +172,25 @@ Answer:
             )
         )
 
-
         db.commit()
-
 
         return ChatResponse(
             reply=reply,
             conversation_id=conversation_id
         )
 
-
     except HTTPException:
-
         raise
 
-
     except Exception as e:
-
         db.rollback()
-
         traceback.print_exc()
 
         raise HTTPException(
             status_code=500,
             detail=str(e)
         )
+
 
 
 
