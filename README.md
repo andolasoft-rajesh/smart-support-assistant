@@ -199,6 +199,27 @@ This repository documents my progress throughout a **4-week AI Internship Progra
 - **DevOps:** Docker, Docker Compose, Git & GitHub
 - **Methodologies:** Prompt Engineering, RAG Pipelines, Automated LLM Evaluation
 
+Click the link below to watch the live walk-through and explanation of the project:
+
+> ### 🎬 [**Watch the Smart Support Assistant Demo Video**](https://drive.google.com/file/d/17K3BGVZdKgxFqcoIf4iCn1zn-xKFG33z/view?usp=sharing)
+
+## 📋 What is Covered in the Presentation
+
+The video walks through the complete lifecycle of the application and demonstrates the key deliverables:
+
+### 1. Architectural Walk-through
+*   A brief overview of the full-stack flow (React frontend, FastAPI backend, PostgreSQL database with `pgvector`, and Google Gemini API integration).
+*   Explanation of the document ingestion and chunking strategy.
+
+### 2. Live Feature Demonstration ("The Golden Path")
+*   **Multi-Document Upload:** Uploading multiple PDF/TXT files and monitoring successful ingestion/embedding generation.
+*   **RAG-Grounding Chat:** Asking questions directly related to the uploaded document content and showing how the assistant retrieves relevant chunks to form answers.
+*   **Summarize Feature:** Demonstrating the document summarization tool, which returns parsed, structured JSON outputs of key points.
+
+### 3. System Robustness & Error Handling
+*   Demonstration of how the backend gracefully recovers from database connection losses (using transactional rollbacks and automatic reconnection pool pings).
+*   Handling of Gemini API rate limits (exponential backoff retry logic).
+
 ---
 
 This repository serves as my internship portfolio, showcasing the projects, assignments, and concepts I've learned throughout the AI Internship Program.
