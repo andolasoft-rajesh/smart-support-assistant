@@ -1,117 +1,48 @@
-import json
+import io
 
-from fastapi import APIRouter, UploadFile, File, Depends
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pypdf import PdfReader
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..document import Document
-from ..chunk import Chunk
-from ..gemini_service import create_embedding
-from ..services.file_extractor import extract_text
-from ..services.chunker import create_chunks
+from app.database import get_db
+from app.schemas import UploadResponse
+from app.services.llm import LLMError
+from app.services.rag import chunk_text, store_chunks
+
+router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-router = APIRouter(
-    prefix="/documents",
-    tags=["Documents"]
-)
+def extract_text(filename: str, raw: bytes) -> str:
+    """Pull plain text out of the uploaded bytes based on the file type."""
+    if filename.lower().endswith(".pdf"):
+        reader = PdfReader(io.BytesIO(raw))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    # Anything else we treat as UTF-8 text; ignore undecodable bytes rather
+    # than 500 on a stray character.
+    return raw.decode("utf-8", errors="ignore")
 
 
-@router.post("/upload")
-async def upload_document(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
+@router.post("/upload", response_model=UploadResponse)
+async def upload(file: UploadFile, db: Session = Depends(get_db)):
+    print("Uploading:", file.filename)
 
-    # Try extracting text from file
-    try:
-        text = extract_text(
-            file.file,
-            file.filename
-        )
+    raw = await file.read()
+    print("File size:", len(raw))
 
-    except Exception:
-        text = ""
+    text = extract_text(file.filename, raw)
+    print("Text length:", len(text))
 
-    # Create chunks only if text exists
-    if text.strip():
+    chunks = chunk_text(text)
+    print("Chunks:", len(chunks))
 
-        chunks = create_chunks(text)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No extractable text")
 
-    else:
-
-        chunks = []
-
-    # Check existing document
-    existing_document = db.query(Document).filter(
-        Document.filename == file.filename
-    ).first()
-
-    # Delete old document and chunks
-    if existing_document:
-
-        db.query(Chunk).filter(
-            Chunk.document_id == existing_document.id
-        ).delete()
-
-        db.delete(existing_document)
-
-        db.commit()
-
-    # Create new document
-    document = Document(
-        filename=file.filename
-    )
-
-    db.add(document)
+    count = store_chunks(db, file.filename, chunks)
+    print("Stored:", count)
 
     db.commit()
+    print("Commit successful")
 
-    db.refresh(document)
-
-    # Save chunks with embeddings
-    for index, chunk_text in enumerate(chunks):
-
-        embedding = create_embedding(chunk_text)
-
-        chunk = Chunk(
-            document_id=document.id,
-            chunk_index=index,
-            content=chunk_text,
-            embedding=str(embedding)
-        )
-
-        db.add(chunk)
-
-    db.commit()
-
-    return {
-        "message": "File uploaded successfully",
-        "filename": file.filename,
-        "chunks_saved": len(chunks)
-    }
-
-
-@router.get("/")
-def list_documents(
-    db: Session = Depends(get_db)
-):
-
-    documents = db.query(Document).all()
-
-    result = []
-
-    for doc in documents:
-
-        chunk_count = db.query(Chunk).filter(
-            Chunk.document_id == doc.id
-        ).count()
-
-        result.append({
-            "id": str(doc.id),
-            "filename": doc.filename,
-            "uploaded_at": doc.uploaded_at,
-            "chunk_count": chunk_count
-        })
-
-    return result
+    return UploadResponse(filename=file.filename, chunks=count)

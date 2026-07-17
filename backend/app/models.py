@@ -3,7 +3,9 @@ from datetime import datetime
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from .database import Base
+from pgvector.sqlalchemy import Vector
+from app.database import Base
+from app.services.llm import EMBEDDING_DIM
 
 class Conversation(Base):
     __tablename__ = "conversations"
