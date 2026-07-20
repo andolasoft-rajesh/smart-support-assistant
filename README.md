@@ -359,4 +359,9 @@ The Smart Support Assistant is an AI-powered document question-answering applica
 - Prompt Engineering
 - Debugging & Problem Solving
 
+## Google Drive
+
+Project files, presentation, and demo video:
+https://drive.google.com/file/d/19gVrok_Q2CdOckMa3F7am1jV37LzqHOy/view?usp=sharing
+
 *Thank you for visiting this repository! I hope this project demonstrates my learning journey and growth in AI and full-stack software development.*
