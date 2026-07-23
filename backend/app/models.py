@@ -7,6 +7,7 @@ from pgvector.sqlalchemy import Vector
 from app.database import Base
 from app.services.llm import EMBEDDING_DIM
 
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
@@ -15,25 +16,33 @@ class Conversation(Base):
 
     messages = relationship("Message", back_populates="conversation")
 
+
 class Message(Base):
     __tablename__ = "messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey(
+        "conversations.id"), nullable=False)
     role = Column(String, nullable=False)   # "user" or "assistant"
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
 
+
 class Document(Base):
     __tablename__ = "documents"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    filename = Column(String, nullable=False, unique=True)
+    filename = Column(String)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
 
-    chunks = relationship("Chunk", back_populates="document")
+    chunks = relationship(
+        "Chunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+
 
 class Chunk(Base):
     """One slice of an uploaded document, with its embedding.
@@ -45,10 +54,15 @@ class Chunk(Base):
     __tablename__ = "document_chunks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)             # the chunk text
-    embedding = Column(Vector(EMBEDDING_DIM))          # match the embedding model's dimension
+    # match the embedding model's dimension
+    embedding = Column(Vector(EMBEDDING_DIM))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     document = relationship("Document", back_populates="chunks")

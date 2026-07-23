@@ -9,6 +9,8 @@ from app.database import get_db
 from app.schemas import UploadResponse
 from app.services.llm import LLMError
 from app.services.rag import chunk_text, store_chunks
+from sqlalchemy import select
+from app.models import Document
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -46,3 +48,19 @@ async def upload(file: UploadFile, db: Session = Depends(get_db)):
     print("Commit successful")
 
     return UploadResponse(filename=file.filename, chunks=count)
+
+
+@router.get("")
+def list_documents(db: Session = Depends(get_db)):
+    documents = db.execute(
+        select(Document).order_by(Document.uploaded_at.desc())
+    ).scalars().all()
+
+    return [
+        {
+            "id": str(doc.id),
+            "filename": doc.filename,
+            "uploaded_at": doc.uploaded_at,
+        }
+        for doc in documents
+    ]

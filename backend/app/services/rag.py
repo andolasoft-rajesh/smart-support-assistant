@@ -1,16 +1,13 @@
 """
 services/rag.py
-The document pipeline, lifted from Day 9's notebook into the product.
 
-Same idea as the notebook — split text into overlapping chunks, embed each
-chunk, keep them — but the chunks now land as rows in PostgreSQL (pgvector)
-instead of a JSON file. Each stage is a plain function; the upload route just
-chains them: extract text -> chunk_text -> store_chunks (embed + insert).
+The document pipeline:
+extract text -> chunk -> embed -> store in PostgreSQL -> retrieve for RAG.
 """
 
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.models import Chunk, Document
@@ -21,29 +18,42 @@ CHUNK_OVERLAP = 200
 
 
 def get_document_text(db: Session, filename: str) -> str:
-    """Return the complete text of one uploaded document."""
+    """
+    Return the text of the latest uploaded document
+    having the given filename.
+    """
 
-    document = db.execute(
-        select(Document).where(Document.filename == filename)
-    ).scalar_one_or_none()
+    document = (
+        db.execute(
+            select(Document)
+            .where(Document.filename == filename)
+            .order_by(desc(Document.uploaded_at), desc(Document.id))
+        )
+        .scalars()
+        .first()
+    )
 
     if document is None:
         return ""
 
-    chunks = db.execute(
-        select(Chunk.content)
-        .where(Chunk.document_id == document.id)
-        .order_by(Chunk.chunk_index)
-    ).scalars().all()
+    chunks = (
+        db.execute(
+            select(Chunk.content)
+            .where(Chunk.document_id == document.id)
+            .order_by(Chunk.chunk_index)
+        )
+        .scalars()
+        .all()
+    )
 
     return "\n".join(chunks)
 
-
 def get_latest_document(db: Session):
-    """Return the most recently uploaded document."""
+    """Return the latest uploaded document."""
 
     return db.execute(
-        select(Document).order_by(Document.uploaded_at.desc())
+        select(Document)
+        .order_by(desc(Document.uploaded_at), desc(Document.id))
     ).scalar_one_or_none()
 
 
@@ -73,34 +83,17 @@ def chunk_text(
 
 
 def store_chunks(db: Session, document: str, chunks: list[str]) -> int:
-    """
-    Embed each chunk and store it in PostgreSQL.
-    """
+    """Embed and store document chunks."""
 
     if not chunks:
         return 0
 
     embeddings = embed_texts(chunks)
 
-    existing = db.execute(
-        select(Document).where(Document.filename == document)
-    ).scalar_one_or_none()
-
-    # If the document already exists, delete its chunks first
-    if existing:
-        db.query(Chunk).filter(
-            Chunk.document_id == existing.id
-        ).delete()
-
-        db.delete(existing)
-        db.flush()
-
-    # Create a new document
     doc = Document(filename=document)
     db.add(doc)
     db.flush()
 
-    # Store all chunks
     for chunk_index, (content, embedding) in enumerate(
         zip(chunks, embeddings),
         start=1,
@@ -114,22 +107,19 @@ def store_chunks(db: Session, document: str, chunks: list[str]) -> int:
             )
         )
 
-    db.commit()
+    # Don't commit here.
+    # documents.py already commits after store_chunks() returns.
 
     return len(chunks)
 
 
 def retrieve(db: Session, question: str, k: int = 4) -> list[str]:
-    """
-    Retrieve the most relevant chunks for the question.
-    """
+    """Retrieve the most relevant chunks."""
 
     try:
         q_emb = embed_query(question)
 
-        latest_doc = db.execute(
-            select(Document).order_by(Document.uploaded_at.desc())
-        ).scalar_one_or_none()
+        latest_doc = get_latest_document(db)
 
         if latest_doc is None:
             return []
